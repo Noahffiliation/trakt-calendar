@@ -84,12 +84,41 @@ def parse_args():
     return parser.parse_args()
 
 
-def write_ics(calendar, file_path_str: str):
-    path = Path(file_path_str)
+def validate_safe_path(file_path_str: str, base_dir: Path = None) -> Path:
+    """
+    Validates that a file path string resolves safely within the designated base directory
+    or working directory to prevent path traversal security vulnerabilities (S8707).
+    """
+    target_path = Path(file_path_str)
+
+    if base_dir is not None:
+        base_dir = base_dir.resolve()
+        if not target_path.is_absolute():
+            target_path = base_dir / target_path
+        resolved_path = target_path.resolve()
+        try:
+            resolved_path.relative_to(base_dir)
+        except ValueError:
+            raise ValueError(f"Path traversal security error: '{file_path_str}' escapes allowed base directory '{base_dir}'")
+        return resolved_path
+
+    resolved_path = target_path.resolve()
+    if not target_path.is_absolute():
+        cwd = Path.cwd().resolve()
+        try:
+            resolved_path.relative_to(cwd)
+        except ValueError:
+            raise ValueError(f"Path traversal security error: '{file_path_str}' escapes working directory '{cwd}'")
+    return resolved_path
+
+
+def write_ics(calendar, file_path_str: str, base_dir: Path = None):
+    path = validate_safe_path(file_path_str, base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(calendar.to_ical())
     event_count = len([comp for comp in calendar.subcomponents if comp.name == "VEVENT"])
-    logger.info(f"Generated '{path.resolve()}' containing {event_count} event(s).")
+    logger.info(f"Generated '{path}' containing {event_count} event(s).")
+
 
 
 def _init_client(args) -> TraktClient:
