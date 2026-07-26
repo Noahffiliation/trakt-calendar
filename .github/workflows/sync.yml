@@ -1,0 +1,55 @@
+name: Sync Trakt Calendar
+
+on:
+  schedule:
+    # Runs every 8 hours starting at midnight Central Time (CDT / UTC-5)
+    # 05:00 UTC = 12:00 AM CDT (Midnight)
+    # 13:00 UTC = 08:00 AM CDT
+    # 21:00 UTC = 04:00 PM CDT
+    - cron: '0 5,13,21 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Restore / Save Trakt Show Cache
+        uses: actions/cache@v6
+        with:
+          path: .show_cache.json
+          key: trakt-show-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trakt-show-cache-${{ runner.os }}-
+            trakt-show-cache-
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip==26.1.2
+          pip install --only-binary :all: --require-hashes -r requirements.txt
+
+      - name: Setup Google Service Account (if provided)
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        if: env.SERVICE_ACCOUNT_JSON != ''
+        run: |
+          echo "$SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: Generate iCal Calendars & Sync
+        env:
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_ACCESS_TOKEN: ${{ secrets.TRAKT_ACCESS_TOKEN }}
+          TRAKT_USERNAME: ${{ secrets.TRAKT_USERNAME }}
+          SYNC_GOOGLE: ${{ secrets.SYNC_GOOGLE || 'false' }}
+          GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
+        run: |
+          python generate_ical.py

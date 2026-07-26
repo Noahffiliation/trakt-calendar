@@ -1,0 +1,19 @@
+# Virtual Environment
+.venv/
+
+# Environment credentials
+.env
+credentials.json
+service_account.json
+token.json
+
+# Local Cache & Output Files
+.show_cache.json
+*.ics
+
+# Python bytecode / pytest
+__pycache__/
+.pytest_cache/
+*.pyc
+.coverage
+coverage.xml
