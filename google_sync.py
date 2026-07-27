@@ -128,11 +128,14 @@ def get_or_create_calendar(service, calendar_name: str, share_email: Optional[st
     return cal_id
 
 
-def _sync_single_event(service, calendar_id: str, event_body: dict, uid: str) -> bool:
+def _sync_single_event(service, calendar_id: str, event_body: dict, uid: str, share_email: Optional[str] = None) -> bool:
     """
     Syncs a single event to Google Calendar, returning True if updated, False if created.
     Uses num_retries=5 for automatic exponential backoff on 403/429 rate limit errors.
     """
+    if share_email and 'attendees' not in event_body:
+        event_body['attendees'] = [{'email': share_email}]
+
     existing_events = service.events().list(
         calendarId=calendar_id,
         iCalUID=uid
@@ -196,7 +199,7 @@ def _delete_removed_events(service, calendar_id: str, current_uids: set, existin
     return deleted_count
 
 
-def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
+def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar, share_email: Optional[str] = None):
     """Sync VEVENT items from an icalendar.Calendar object into a Google Calendar and purge removed events."""
     events = [comp for comp in ical_obj.subcomponents if comp.name == 'VEVENT']
     current_uids = {str(event.get('uid')) for event in events if event.get('uid')}
@@ -250,7 +253,7 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
             }
 
         try:
-            is_update = _sync_single_event(service, calendar_id, event_body, uid)
+            is_update = _sync_single_event(service, calendar_id, event_body, uid, share_email=share_email)
             if is_update:
                 updated_count += 1
             else:

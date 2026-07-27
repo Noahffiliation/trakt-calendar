@@ -53,3 +53,9 @@ jobs:
           GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
         run: |
           python generate_ical.py
+
+      - name: Upload iCal Files as Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ical-files
+          path: '*.ics'
