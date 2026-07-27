@@ -149,7 +149,7 @@ def test_delete_removed_events():
     with patch("time.sleep"):
         deleted = google_sync._delete_removed_events(mock_service, "cal_id", current_uids, existing_events)
     assert deleted == 1
-    mock_service.events().delete.assert_called_once_with(calendarId="cal_id", eventId="ev2", sendUpdates="all")
+    mock_service.events().delete.assert_called_once_with(calendarId="cal_id", eventId="ev2", sendUpdates="none")
 
 
 def test_sync_ical_to_google_calendar():
