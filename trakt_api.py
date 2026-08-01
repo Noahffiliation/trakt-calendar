@@ -30,6 +30,28 @@ def _is_last_page(headers, page: int, item_count: int, limit: int) -> bool:
     return item_count < limit
 
 
+def _is_rate_limited(response: requests.Response) -> bool:
+    if response.status_code == 429:
+        return True
+    if response.status_code != 200:
+        text_lower = response.text.lower()
+        return "rate limited" in text_lower or "cloudflare" in text_lower
+    return False
+
+
+def _get_retry_wait_sec(response: requests.Response, attempt: int) -> int:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after and retry_after.isdigit():
+        return int(retry_after) + 1
+    return attempt * 2
+
+
+def _make_http_request(method: str, url: str, headers: dict, params: Optional[dict]) -> requests.Response:
+    if method.upper() == "GET":
+        return requests.get(url, headers=headers, params=params, timeout=30)
+    return requests.request(method, url, headers=headers, params=params, timeout=30)
+
+
 def _handle_page_error(response, endpoint: str, raise_on_error: bool):
     if raise_on_error:
         raise TraktAPIError(f"Trakt API error {response.status_code}: {response.text}")
@@ -42,6 +64,8 @@ class TraktClient:
         client_id: str,
         access_token: Optional[str] = None,
         username: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        refresh_token: Optional[str] = None,
         base_url: str = TRAKT_API_URL,
         cache_file: str = CACHE_FILE
     ):
@@ -51,6 +75,8 @@ class TraktClient:
         self.client_id = client_id
         self.access_token = access_token
         self.username = username
+        self.client_secret = client_secret or os.getenv("TRAKT_CLIENT_SECRET")
+        self.refresh_token = refresh_token or os.getenv("TRAKT_REFRESH_TOKEN")
         self.base_url = base_url.rstrip("/")
         self.cache_file = cache_file
         self._show_cache = self._load_cache()
@@ -65,6 +91,38 @@ class TraktClient:
             headers["Authorization"] = f"Bearer {self.access_token}"
         return headers
 
+    def _try_refresh_token(self) -> bool:
+        """Attempt to automatically refresh access token if client_secret & refresh_token are present."""
+        if not self.client_secret or not self.refresh_token:
+            return False
+
+        logger.info("Encountered 401 Unauthorized. Attempting automatic Trakt OAuth token refresh...")
+        try:
+            response = requests.post(
+                f"{self.base_url}/oauth/token",
+                json={
+                    "refresh_token": self.refresh_token,
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+                    "grant_type": "refresh_token"
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+            if response.status_code == 200:
+                data = response.json()
+                self.access_token = data.get("access_token")
+                self.refresh_token = data.get("refresh_token")
+                logger.info("✅ Successfully refreshed Trakt OAuth access token!")
+                return True
+            else:
+                logger.warning(f"Automatic token refresh failed ({response.status_code}): {response.text}")
+                return False
+        except Exception as e:
+            logger.warning(f"Error during automatic token refresh: {e}")
+            return False
+
     def _load_cache(self) -> Dict[str, Any]:
         if os.path.exists(self.cache_file):
             try:
@@ -76,8 +134,10 @@ class TraktClient:
 
     def _save_cache(self):
         try:
-            with open(self.cache_file, "w", encoding="utf-8") as f:
+            tmp_file = f"{self.cache_file}.tmp"
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(self._show_cache, f)
+            os.replace(tmp_file, self.cache_file)
         except Exception as e:
             logger.warning(f"Could not save cache file '{self.cache_file}': {e}")
 
@@ -88,22 +148,20 @@ class TraktClient:
         params: Optional[Dict[str, Any]] = None,
         max_retries: int = 5
     ) -> requests.Response:
-        """Execute HTTP request with automatic retry logic for rate limits (429) & Cloudflare pacing."""
-        headers = self._get_headers()
+        """Execute HTTP request with automatic retry logic for 401 auth refresh, rate limits (429) & Cloudflare pacing."""
+        refreshed_attempted = False
         
         for attempt in range(1, max_retries + 1):
-            if method.upper() == "GET":
-                response = requests.get(url, headers=headers, params=params, timeout=30)
-            else:
-                response = requests.request(method, url, headers=headers, params=params, timeout=30)
+            headers = self._get_headers()
+            response = _make_http_request(method, url, headers, params)
             
-            if response.status_code == 429 or "rate limited" in response.text.lower() or "cloudflare" in response.text.lower() and response.status_code != 200:
-                retry_after = response.headers.get("Retry-After")
-                if retry_after and retry_after.isdigit():
-                    wait_sec = int(retry_after) + 1
-                else:
-                    wait_sec = attempt * 2  # Exponential backoff: 2s, 4s, 6s, 8s...
-                
+            if response.status_code == 401 and not refreshed_attempted:
+                refreshed_attempted = True
+                if self._try_refresh_token():
+                    continue
+
+            if _is_rate_limited(response):
+                wait_sec = _get_retry_wait_sec(response, attempt)
                 logger.warning(f"Rate limited by Trakt API (Status {response.status_code}). Waiting {wait_sec}s before retry {attempt}/{max_retries}...")
                 time.sleep(wait_sec)
                 continue

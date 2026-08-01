@@ -96,3 +96,56 @@ def test_get_show_seasons_with_episodes(mock_get):
     seasons = client.get_show_seasons_with_episodes(show_id=12345)
     assert len(seasons) == 1
     assert seasons[0]["episodes"][0]["title"] == "Pilot"
+
+
+@patch("requests.post")
+@patch("requests.get")
+def test_auto_refresh_on_401(mock_get, mock_post):
+    client = TraktClient(
+        client_id="cid",
+        access_token="old_acc",
+        client_secret="csecret",
+        refresh_token="old_ref"
+    )
+
+    mock_401 = MagicMock()
+    mock_401.status_code = 401
+
+    mock_200 = MagicMock()
+    mock_200.status_code = 200
+    mock_200.json.return_value = [{"type": "movie"}]
+
+    mock_get.side_effect = [mock_401, mock_200]
+
+    mock_token_resp = MagicMock()
+    mock_token_resp.status_code = 200
+    mock_token_resp.json.return_value = {
+        "access_token": "new_acc",
+        "refresh_token": "new_ref"
+    }
+    mock_post.return_value = mock_token_resp
+
+    items = client.get_watchlist()
+    assert len(items) == 1
+    assert client.access_token == "new_acc"
+    assert client.refresh_token == "new_ref"
+
+
+def test_corrupted_cache_fallback(tmp_path):
+    corrupted_file = tmp_path / "corrupted_cache.json"
+    corrupted_file.write_text("{invalid json content", encoding="utf-8")
+    
+    client = TraktClient(client_id="test_id", cache_file=str(corrupted_file))
+    assert client._show_cache == {}
+
+
+def test_atomic_save_cache(tmp_path):
+    cache_file = tmp_path / "test_cache.json"
+    client = TraktClient(client_id="test_id", cache_file=str(cache_file))
+    client._show_cache = {"123": {"timestamp": 123456}}
+    client._save_cache()
+    
+    assert cache_file.exists()
+    assert "123" in cache_file.read_text(encoding="utf-8")
+
+

@@ -5,15 +5,43 @@ and retrieve an OAuth Access Token for private watchlists.
 
 import os
 import sys
+from typing import Optional
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 TRAKT_API_URL = "https://api.trakt.tv"
+CONTENT_TYPE_JSON = "application/json"
+JSON_HEADERS = {"Content-Type": CONTENT_TYPE_JSON}
 
 
-def main():
+def refresh_oauth_token(client_id: str, client_secret: str, refresh_token: str) -> Optional[dict]:
+    """Exchanges a refresh token for a new access token and refresh token via Trakt API."""
+    response = requests.post(
+        f"{TRAKT_API_URL}/oauth/token",
+        json={
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+            "grant_type": "refresh_token"
+        },
+        headers=JSON_HEADERS
+    )
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"❌ Failed to refresh token: {response.status_code} - {response.text}")
+        return None
+
+
+def main(args=None):
+    import argparse
+    parser = argparse.ArgumentParser(description="Authenticate with Trakt or refresh OAuth access token.")
+    parser.add_argument("--refresh", action="store_true", help="Attempt to refresh access token using TRAKT_REFRESH_TOKEN")
+    cli_args = parser.parse_args(args)
+
     client_id = os.getenv("TRAKT_CLIENT_ID") or input("Enter Trakt Client ID: ").strip()
     client_secret = os.getenv("TRAKT_CLIENT_SECRET") or input("Enter Trakt Client Secret: ").strip()
 
@@ -21,11 +49,29 @@ def main():
         print("Error: Both Client ID and Client Secret are required for OAuth flow.")
         sys.exit(1)
 
+    if cli_args.refresh:
+        refresh_tok = os.getenv("TRAKT_REFRESH_TOKEN") or input("Enter Trakt Refresh Token: ").strip()
+        if not refresh_tok:
+            print("Error: Refresh Token is required for token refresh.")
+            sys.exit(1)
+        print("Requesting token refresh...")
+        token_data = refresh_oauth_token(client_id, client_secret, refresh_tok)
+        if token_data:
+            access_token = token_data.get("access_token")
+            new_refresh_token = token_data.get("refresh_token")
+            print("\n✅ Token refresh successful!")
+            print(f"TRAKT_ACCESS_TOKEN={access_token}")
+            print(f"TRAKT_REFRESH_TOKEN={new_refresh_token}")
+            print("\nUpdate your .env file or environment variables with these values.")
+            return
+        else:
+            sys.exit(1)
+
     print("\n--- Trakt Device Code Authorization ---")
     response = requests.post(
         f"{TRAKT_API_URL}/oauth/device/code",
         json={"client_id": client_id},
-        headers={"Content-Type": "application/json"}
+        headers=JSON_HEADERS
     )
 
     if response.status_code != 200:
@@ -52,7 +98,7 @@ def main():
             "client_id": client_id,
             "client_secret": client_secret
         },
-        headers={"Content-Type": "application/json"}
+        headers=JSON_HEADERS
     )
 
     if token_resp.status_code == 200:

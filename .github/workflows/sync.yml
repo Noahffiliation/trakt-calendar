@@ -47,7 +47,9 @@ jobs:
       - name: Generate iCal Calendars & Sync
         env:
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
           TRAKT_ACCESS_TOKEN: ${{ secrets.TRAKT_ACCESS_TOKEN }}
+          TRAKT_REFRESH_TOKEN: ${{ secrets.TRAKT_REFRESH_TOKEN }}
           TRAKT_USERNAME: ${{ secrets.TRAKT_USERNAME }}
           SYNC_GOOGLE: ${{ secrets.SYNC_GOOGLE || 'false' }}
           GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
