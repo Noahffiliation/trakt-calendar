@@ -109,6 +109,6 @@ def test_auth_main_refresh_flag_success(capsys):
         auth.main()
 
     captured = capsys.readouterr().out
-    assert "TRAKT_ACCESS_TOKEN=refreshed_acc" in captured
-    assert "TRAKT_REFRESH_TOKEN=refreshed_ref" in captured
+    assert "Token refresh successful!" in captured
+    assert "Update your .env file or environment variables" in captured
 

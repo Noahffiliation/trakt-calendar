@@ -57,11 +57,7 @@ def main(args=None):
         print("Requesting token refresh...")
         token_data = refresh_oauth_token(client_id, client_secret, refresh_tok)
         if token_data:
-            access_token = token_data.get("access_token")
-            new_refresh_token = token_data.get("refresh_token")
             print("\n✅ Token refresh successful!")
-            print(f"TRAKT_ACCESS_TOKEN={access_token}")
-            print(f"TRAKT_REFRESH_TOKEN={new_refresh_token}")
             print("\nUpdate your .env file or environment variables with these values.")
             return
         else:
