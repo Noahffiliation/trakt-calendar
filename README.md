@@ -62,6 +62,26 @@ SYNC_GOOGLE=true
     python generate_ical.py --sync-google
     ```
 
+### GitHub Actions Automated Sync Setup
+To run the automated synchronization via GitHub Actions:
+1. In your GitHub repository, go to **Settings** > **Secrets and variables** > **Actions**.
+2. Add the following repository secrets:
+   - `TRAKT_CLIENT_ID`: Your Trakt API Client ID.
+   - `TRAKT_CLIENT_SECRET`: Your Trakt API Client Secret.
+   - `TRAKT_ACCESS_TOKEN`: OAuth access token generated from `python auth.py`.
+   - `TRAKT_REFRESH_TOKEN`: OAuth refresh token generated from `python auth.py`.
+   - `SERVICE_ACCOUNT_JSON`: Contents of your `service_account.json` (optional for Google Calendar sync).
+   - `SYNC_GOOGLE`: Set to `true` if syncing with Google Calendar.
+   - `GOOGLE_SHARE_EMAIL`: Your primary Google account email to share created calendars with.
+
+#### Automated OAuth Token Refresh
+Trakt OAuth access tokens expire periodically. To allow GitHub Actions to automatically refresh tokens and persist the new secrets back to your repository:
+1. Create a GitHub Personal Access Token (PAT) with repository secrets write permissions:
+   - Go to **GitHub Settings** > **Developer Settings** > **Personal Access Tokens** > **Fine-grained tokens**.
+   - Select your repository and grant **Repository permissions** > **Secrets: Read and write**.
+2. Add the PAT as a repository secret named `GH_SECRETS_PAT`.
+3. When Trakt automatically rotates the OAuth tokens during a sync run, the workflow will use `GH_SECRETS_PAT` to update `TRAKT_ACCESS_TOKEN` and `TRAKT_REFRESH_TOKEN` in your repository secrets automatically.
+
 ## Running the tests <a name = "tests"></a>
 Explain how to run the automated tests for this system.
 

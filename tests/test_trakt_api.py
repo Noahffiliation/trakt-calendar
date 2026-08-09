@@ -149,3 +149,53 @@ def test_atomic_save_cache(tmp_path):
     assert "123" in cache_file.read_text(encoding="utf-8")
 
 
+def test_save_refreshed_tokens_to_file(tmp_path):
+    token_file = tmp_path / "refreshed.json"
+    client = TraktClient(
+        client_id="test_id",
+        access_token="new_access_123",
+        refresh_token="new_refresh_456",
+        refreshed_tokens_file=str(token_file)
+    )
+    client._save_refreshed_tokens()
+
+    assert token_file.exists()
+    content = token_file.read_text(encoding="utf-8")
+    assert "new_access_123" in content
+    assert "new_refresh_456" in content
+
+
+def test_save_refreshed_tokens_github_output(tmp_path):
+    token_file = tmp_path / "refreshed.json"
+    github_output_file = tmp_path / "github_output.txt"
+    github_output_file.write_text("", encoding="utf-8")
+
+    client = TraktClient(
+        client_id="test_id",
+        access_token="tok_abc",
+        refresh_token="ref_xyz",
+        refreshed_tokens_file=str(token_file)
+    )
+
+    with patch.dict("os.environ", {"GITHUB_OUTPUT": str(github_output_file)}):
+        client._save_refreshed_tokens()
+
+    assert github_output_file.exists()
+    output_text = github_output_file.read_text(encoding="utf-8")
+    assert "refreshed_access_token=tok_abc" in output_text
+    assert "refreshed_refresh_token=ref_xyz" in output_text
+    assert "tokens_refreshed=true" in output_text
+
+
+def test_save_refreshed_tokens_noop_if_empty(tmp_path):
+    token_file = tmp_path / "refreshed.json"
+    client = TraktClient(
+        client_id="test_id",
+        access_token=None,
+        refresh_token=None,
+        refreshed_tokens_file=str(token_file)
+    )
+    client._save_refreshed_tokens()
+    assert not token_file.exists()
+
+

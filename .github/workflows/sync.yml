@@ -56,6 +56,30 @@ jobs:
         run: |
           python generate_ical.py
 
+      - name: Update Trakt Secrets in GitHub (if refreshed)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+        run: |
+          if [ -f ".trakt_refreshed_tokens.json" ]; then
+            if [ -n "$GH_TOKEN" ]; then
+              echo "Detected refreshed Trakt tokens. Updating GitHub repository secrets..."
+              ACCESS_TOKEN=$(jq -r '.access_token' .trakt_refreshed_tokens.json)
+              REFRESH_TOKEN=$(jq -r '.refresh_token' .trakt_refreshed_tokens.json)
+              if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ]; then
+                gh secret set TRAKT_ACCESS_TOKEN --body "$ACCESS_TOKEN" --repo "${{ github.repository }}"
+                echo "Successfully updated TRAKT_ACCESS_TOKEN secret."
+              fi
+              if [ -n "$REFRESH_TOKEN" ] && [ "$REFRESH_TOKEN" != "null" ]; then
+                gh secret set TRAKT_REFRESH_TOKEN --body "$REFRESH_TOKEN" --repo "${{ github.repository }}"
+                echo "Successfully updated TRAKT_REFRESH_TOKEN secret."
+              fi
+            else
+              echo "::warning::Trakt tokens were refreshed, but GH_SECRETS_PAT secret is not set. Cannot update GitHub Secrets automatically."
+            fi
+            rm -f .trakt_refreshed_tokens.json
+          fi
+
       - name: Upload iCal Files as Artifacts
         uses: actions/upload-artifact@v7
         with:

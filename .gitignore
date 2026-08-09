@@ -9,6 +9,7 @@ token.json
 
 # Local Cache & Output Files
 .show_cache.json
+.trakt_refreshed_tokens.json
 *.ics
 
 # Python bytecode / pytest

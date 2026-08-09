@@ -18,6 +18,9 @@ CACHE_FILE = ".show_cache.json"
 CACHE_TTL_HOURS = 24  # Cache ended/known show season data for 24 hours
 
 
+REFRESHED_TOKENS_FILE = ".trakt_refreshed_tokens.json"
+
+
 class TraktAPIError(Exception):
     """Custom exception for Trakt API errors."""
     pass
@@ -67,7 +70,8 @@ class TraktClient:
         client_secret: Optional[str] = None,
         refresh_token: Optional[str] = None,
         base_url: str = TRAKT_API_URL,
-        cache_file: str = CACHE_FILE
+        cache_file: str = CACHE_FILE,
+        refreshed_tokens_file: str = REFRESHED_TOKENS_FILE
     ):
         if not client_id:
             raise ValueError("Trakt Client ID is required.")
@@ -79,6 +83,7 @@ class TraktClient:
         self.refresh_token = refresh_token or os.getenv("TRAKT_REFRESH_TOKEN")
         self.base_url = base_url.rstrip("/")
         self.cache_file = cache_file
+        self.refreshed_tokens_file = refreshed_tokens_file
         self._show_cache = self._load_cache()
 
     def _get_headers(self) -> Dict[str, str]:
@@ -90,6 +95,32 @@ class TraktClient:
         if self.access_token:
             headers["Authorization"] = f"Bearer {self.access_token}"
         return headers
+
+    def _save_refreshed_tokens(self):
+        """Saves refreshed tokens to a temporary JSON file and GitHub Actions output if present."""
+        if not self.access_token or not self.refresh_token:
+            return
+
+        token_data = {
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+        }
+
+        try:
+            with open(self.refreshed_tokens_file, "w", encoding="utf-8") as f:
+                json.dump(token_data, f)
+        except Exception as e:
+            logger.warning(f"Could not save refreshed tokens to '{self.refreshed_tokens_file}': {e}")
+
+        github_output = os.getenv("GITHUB_OUTPUT")
+        if github_output and os.path.exists(github_output):
+            try:
+                with open(github_output, "a", encoding="utf-8") as f:
+                    f.write(f"refreshed_access_token={self.access_token}\n")
+                    f.write(f"refreshed_refresh_token={self.refresh_token}\n")
+                    f.write("tokens_refreshed=true\n")
+            except Exception as e:
+                logger.warning(f"Could not write to GITHUB_OUTPUT: {e}")
 
     def _try_refresh_token(self) -> bool:
         """Attempt to automatically refresh access token if client_secret & refresh_token are present."""
@@ -115,6 +146,7 @@ class TraktClient:
                 self.access_token = data.get("access_token")
                 self.refresh_token = data.get("refresh_token")
                 logger.info("✅ Successfully refreshed Trakt OAuth access token!")
+                self._save_refreshed_tokens()
                 return True
             else:
                 logger.warning(f"Automatic token refresh failed ({response.status_code}): {response.text}")
