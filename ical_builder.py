@@ -116,6 +116,18 @@ def _create_movie_event(item: Dict[str, Any], start_cutoff: Optional[datetime]) 
     return event
 
 
+def _safe_runtime(val: Any, default: int) -> int:
+    """Safely cast a runtime value to a positive integer with a fallback default."""
+    try:
+        if val is not None:
+            parsed = int(val)
+            if parsed > 0:
+                return parsed
+    except (ValueError, TypeError):
+        pass
+    return default
+
+
 def _create_episode_event(ep_info: Dict[str, Any], start_cutoff: Optional[datetime]) -> Optional[Event]:
     show = ep_info.get("show", {})
     episode = ep_info.get("episode", {})
@@ -138,7 +150,8 @@ def _create_episode_event(ep_info: Dict[str, Any], start_cutoff: Optional[dateti
     event.add('summary', summary)
 
     event.add('dtstart', air_dt)
-    runtime = episode.get("runtime") or show.get("runtime") or 45
+    raw_runtime = episode.get("runtime") or show.get("runtime")
+    runtime = _safe_runtime(raw_runtime, default=45)
     event.add('dtend', air_dt + timedelta(minutes=runtime))
 
     trakt_id = show.get("ids", {}).get("trakt", "unknown")
@@ -174,7 +187,7 @@ def _create_premiere_event(show_item: Dict[str, Any], start_cutoff: Optional[dat
     event.add('summary', summary)
 
     event.add('dtstart', air_dt)
-    runtime = show.get("runtime") or 60
+    runtime = _safe_runtime(show.get("runtime"), default=60)
     event.add('dtend', air_dt + timedelta(minutes=runtime))
 
     trakt_id = show.get("ids", {}).get("trakt", "unknown")

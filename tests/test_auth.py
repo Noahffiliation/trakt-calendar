@@ -112,3 +112,32 @@ def test_auth_main_refresh_flag_success(capsys):
     assert "Token refresh successful!" in captured
     assert "Update your .env file or environment variables" in captured
 
+
+def test_auth_main_refresh_missing_refresh_token():
+    with patch.dict("os.environ", {
+        "TRAKT_CLIENT_ID": "cid",
+        "TRAKT_CLIENT_SECRET": "csecret"
+    }, clear=True), patch("builtins.input", return_value=""), pytest.raises(SystemExit) as exc_info:
+        auth.main(["--refresh"])
+    assert exc_info.value.code == 1
+
+
+def test_auth_main_refresh_failure():
+    with patch.dict("os.environ", {
+        "TRAKT_CLIENT_ID": "cid",
+        "TRAKT_CLIENT_SECRET": "csecret",
+        "TRAKT_REFRESH_TOKEN": "rtok"
+    }), patch("auth.refresh_oauth_token", return_value=None), pytest.raises(SystemExit) as exc_info:
+        auth.main(["--refresh"])
+    assert exc_info.value.code == 1
+
+
+def test_auth_dunder_main():
+    import runpy
+    with patch.dict("os.environ", {}, clear=True), \
+         patch("builtins.input", side_effect=["", ""]), \
+         pytest.raises(SystemExit):
+        runpy.run_path("auth.py", run_name="__main__")
+
+
+

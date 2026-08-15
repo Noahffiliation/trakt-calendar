@@ -21,8 +21,21 @@ def test_get_oauth_credentials_existing_valid():
         assert creds == mock_creds
 
 
-def test_get_oauth_credentials_refresh_and_flow():
-    # Test expired token refresh failure and flow execution
+def test_get_oauth_credentials_refresh_success():
+    mock_creds = MagicMock()
+    mock_creds.valid = False
+    mock_creds.expired = True
+    mock_creds.refresh_token = "rt"
+    mock_creds.refresh.return_value = None
+
+    with patch("os.path.exists", return_value=True), \
+         patch("google.oauth2.credentials.Credentials.from_authorized_user_file", return_value=mock_creds):
+        creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
+        assert creds == mock_creds
+        mock_creds.refresh.assert_called_once()
+
+
+def test_get_oauth_credentials_refresh_fail_and_flow():
     mock_creds = MagicMock()
     mock_creds.valid = False
     mock_creds.expired = True
@@ -40,6 +53,8 @@ def test_get_oauth_credentials_refresh_and_flow():
          patch("builtins.open", mock_open()):
         creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
         assert creds == mock_new_creds
+
+
 
 
 def test_get_oauth_credentials_missing_file():
@@ -152,7 +167,52 @@ def test_delete_removed_events():
     mock_service.events().delete.assert_called_once_with(calendarId="cal_id", eventId="ev2", sendUpdates="none")
 
 
-def test_sync_ical_to_google_calendar():
+def test_get_oauth_credentials_corrupt_user_file():
+    mock_flow = MagicMock()
+    mock_new_creds = MagicMock()
+    mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+    mock_flow.run_local_server.return_value = mock_new_creds
+
+    with patch("os.path.exists", side_effect=lambda p: p in ("token.json", "credentials.json")), \
+         patch("google.oauth2.credentials.Credentials.from_authorized_user_file", side_effect=Exception("Corrupt file")), \
+         patch("google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file", return_value=mock_flow), \
+         patch("builtins.open", mock_open()):
+        creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
+        assert creds == mock_new_creds
+
+
+def test_share_calendar_with_email_none():
+    mock_service = MagicMock()
+    with patch.dict("os.environ", {}, clear=True):
+        google_sync.share_calendar_with_email(mock_service, "cal_id", share_email=None)
+        mock_service.acl.assert_not_called()
+
+
+def test_share_calendar_with_email_httperror():
+    mock_service = MagicMock()
+    mock_service.acl().list().execute().get.return_value = []
+    
+    resp = MagicMock(status=400, reason="Bad Request")
+    http_err = HttpError(resp, b"ACL error")
+    mock_service.acl().insert().execute.side_effect = http_err
+
+    google_sync.share_calendar_with_email(mock_service, "cal_id", "error@example.com")
+
+
+def test_delete_removed_events_httperror():
+    mock_service = MagicMock()
+    existing_events = [
+        {"id": "ev1", "iCalUID": "trakt-movie-1", "summary": "Movie 1"}
+    ]
+    resp = MagicMock(status=400, reason="Error")
+    mock_service.events().delete().execute.side_effect = HttpError(resp, b"Delete failed")
+
+    with patch("time.sleep"):
+        deleted = google_sync._delete_removed_events(mock_service, "cal_id", current_uids=set(), existing_events=existing_events)
+    assert deleted == 0
+
+
+def test_sync_ical_to_google_calendar_success():
     cal = Calendar()
     ev1 = Event()
     ev1.add("summary", "Timed Event")
@@ -177,3 +237,25 @@ def test_sync_ical_to_google_calendar():
          patch("google_sync._sync_single_event", side_effect=[False, True]), \
          patch("time.sleep"):
         google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
+
+
+def test_sync_ical_to_google_calendar_httperror():
+    cal = Calendar()
+    ev1 = Event()
+    ev1.add("summary", "Timed Event")
+    ev1.add("uid", "trakt-ep-1")
+    ev1.add("dtstart", datetime.now(timezone.utc))
+    ev1.add("dtend", datetime.now(timezone.utc) + timedelta(hours=1))
+    cal.add_component(ev1)
+
+    mock_service = MagicMock()
+    resp = MagicMock(status=500, reason="Server Error")
+    http_err = HttpError(resp, b"Sync error")
+
+    with patch("google_sync._fetch_all_google_events", return_value=[]), \
+         patch("google_sync._delete_removed_events", return_value=0), \
+         patch("google_sync._sync_single_event", side_effect=http_err), \
+         patch("time.sleep"):
+        google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
+
+

@@ -27,7 +27,8 @@ def refresh_oauth_token(client_id: str, client_secret: str, refresh_token: str) 
             "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
             "grant_type": "refresh_token"
         },
-        headers=JSON_HEADERS
+        headers=JSON_HEADERS,
+        timeout=30
     )
     if response.status_code == 200:
         return response.json()
@@ -67,7 +68,8 @@ def main(args=None):
     response = requests.post(
         f"{TRAKT_API_URL}/oauth/device/code",
         json={"client_id": client_id},
-        headers=JSON_HEADERS
+        headers=JSON_HEADERS,
+        timeout=30
     )
 
     if response.status_code != 200:
@@ -94,7 +96,8 @@ def main(args=None):
             "client_id": client_id,
             "client_secret": client_secret
         },
-        headers=JSON_HEADERS
+        headers=JSON_HEADERS,
+        timeout=30
     )
 
     if token_resp.status_code == 200:

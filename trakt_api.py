@@ -49,10 +49,17 @@ def _get_retry_wait_sec(response: requests.Response, attempt: int) -> int:
     return attempt * 2
 
 
-def _make_http_request(method: str, url: str, headers: dict, params: Optional[dict]) -> requests.Response:
+def _make_http_request(
+    method: str,
+    url: str,
+    headers: dict,
+    params: Optional[dict],
+    session: Optional[requests.Session] = None
+) -> requests.Response:
+    requester = session if session is not None else requests
     if method.upper() == "GET":
-        return requests.get(url, headers=headers, params=params, timeout=30)
-    return requests.request(method, url, headers=headers, params=params, timeout=30)
+        return requester.get(url, headers=headers, params=params, timeout=30)
+    return requester.request(method, url, headers=headers, params=params, timeout=30)
 
 
 def _handle_page_error(response, endpoint: str, raise_on_error: bool):
@@ -71,7 +78,8 @@ class TraktClient:
         refresh_token: Optional[str] = None,
         base_url: str = TRAKT_API_URL,
         cache_file: str = CACHE_FILE,
-        refreshed_tokens_file: str = REFRESHED_TOKENS_FILE
+        refreshed_tokens_file: str = REFRESHED_TOKENS_FILE,
+        session: Optional[requests.Session] = None
     ):
         if not client_id:
             raise ValueError("Trakt Client ID is required.")
@@ -84,6 +92,7 @@ class TraktClient:
         self.base_url = base_url.rstrip("/")
         self.cache_file = cache_file
         self.refreshed_tokens_file = refreshed_tokens_file
+        self.session = session or requests.Session()
         self._show_cache = self._load_cache()
 
     def _get_headers(self) -> Dict[str, str]:
@@ -129,7 +138,8 @@ class TraktClient:
 
         logger.info("Encountered 401 Unauthorized. Attempting automatic Trakt OAuth token refresh...")
         try:
-            response = requests.post(
+            requester = self.session if self.session is not None else requests
+            response = requester.post(
                 f"{self.base_url}/oauth/token",
                 json={
                     "refresh_token": self.refresh_token,
@@ -185,7 +195,7 @@ class TraktClient:
         
         for attempt in range(1, max_retries + 1):
             headers = self._get_headers()
-            response = _make_http_request(method, url, headers, params)
+            response = _make_http_request(method, url, headers, params, session=self.session)
             
             if response.status_code == 401 and not refreshed_attempted:
                 refreshed_attempted = True
