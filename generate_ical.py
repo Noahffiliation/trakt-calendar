@@ -222,15 +222,13 @@ def _sync_to_google(movies_cal, shows_cal):
         from google_sync import get_google_calendar_service, get_or_create_calendar, sync_ical_to_google_calendar
         service = get_google_calendar_service()
 
-        share_email = os.getenv("GOOGLE_SHARE_EMAIL") or os.getenv("GOOGLE_CALENDAR_SHARE_EMAIL")
-
-        movies_cal_id = get_or_create_calendar(service, "Trakt Movies", share_email=share_email)
+        movies_cal_id = get_or_create_calendar(service, "Trakt Movies")
         sync_ical_to_google_calendar(service, movies_cal_id, movies_cal)
 
-        shows_cal_id = get_or_create_calendar(service, "Trakt TV Shows", share_email=share_email)
+        shows_cal_id = get_or_create_calendar(service, "Trakt TV Shows")
         sync_ical_to_google_calendar(service, shows_cal_id, shows_cal)
 
-        logger.info("✅ Direct Google Calendar API sync complete!")
+        logger.info("✅ Direct Google Calendar API sync complete!") 
     except Exception:
         logger.exception("❌ Google Calendar API sync error")
 

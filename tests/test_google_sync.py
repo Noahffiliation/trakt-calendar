@@ -125,20 +125,121 @@ def test_get_or_create_calendar_new():
     assert cal_id == "new_cal_456"
 
 
-def test_sync_single_event_update_and_insert():
+def test_event_has_changed_helper():
+    base_existing = {
+        "summary": "Movie A",
+        "description": "Desc A",
+        "start": {"date": "2026-08-01"},
+        "end": {"date": "2026-08-02"}
+    }
+
+    # Identical
+    assert google_sync._event_has_changed(base_existing, {
+        "summary": "Movie A",
+        "description": "Desc A",
+        "start": {"date": "2026-08-01"},
+        "end": {"date": "2026-08-02"}
+    }) is False
+
+    # Summary changed
+    assert google_sync._event_has_changed(base_existing, {
+        "summary": "Movie B",
+        "description": "Desc A",
+        "start": {"date": "2026-08-01"},
+        "end": {"date": "2026-08-02"}
+    }) is True
+
+    # Description changed
+    assert google_sync._event_has_changed(base_existing, {
+        "summary": "Movie A",
+        "description": "New Desc",
+        "start": {"date": "2026-08-01"},
+        "end": {"date": "2026-08-02"}
+    }) is True
+
+    # Start changed
+    assert google_sync._event_has_changed(base_existing, {
+        "summary": "Movie A",
+        "description": "Desc A",
+        "start": {"date": "2026-08-05"},
+        "end": {"date": "2026-08-02"}
+    }) is True
+
+    # End changed
+    assert google_sync._event_has_changed(base_existing, {
+        "summary": "Movie A",
+        "description": "Desc A",
+        "start": {"date": "2026-08-01"},
+        "end": {"date": "2026-08-06"}
+    }) is True
+
+
+def test_upsert_single_event_update_and_insert():
     mock_service = MagicMock()
 
-    # Test update existing event
-    mock_service.events().list().execute().get.return_value = [{"id": "ev_1"}]
-    is_update = google_sync._sync_single_event(mock_service, "cal_id", {}, "uid_1")
+    # Test update existing event via patch
+    is_update = google_sync._upsert_single_event(
+        mock_service,
+        "cal_id",
+        {"summary": "New Summary"},
+        existing_event={"id": "ev_1"}
+    )
     assert is_update is True
-    mock_service.events().update.assert_called_once()
+    mock_service.events().patch.assert_called_with(
+        calendarId="cal_id",
+        eventId="ev_1",
+        body={"summary": "New Summary"}
+    )
 
     # Test insert new event
-    mock_service.events().list().execute().get.return_value = []
-    is_update_2 = google_sync._sync_single_event(mock_service, "cal_id", {}, "uid_2")
+    is_update_2 = google_sync._upsert_single_event(
+        mock_service,
+        "cal_id",
+        {"summary": "Brand New"},
+        existing_event=None
+    )
     assert is_update_2 is False
     mock_service.events().insert.assert_called_once()
+
+
+def test_upsert_single_event_409_duplicate_fallback():
+    mock_service = MagicMock()
+    resp = MagicMock(status=409, reason="Conflict")
+    err_409 = HttpError(resp, b"The requested identifier already exists.")
+    mock_service.events().insert().execute.side_effect = err_409
+
+    # Mock list returning the existing item
+    mock_service.events().list().execute().get.return_value = [{"id": "recovered_id"}]
+
+    is_update = google_sync._upsert_single_event(
+        mock_service,
+        "cal_id",
+        {"summary": "Conflict Show", "iCalUID": "trakt-123"},
+        existing_event=None
+    )
+    assert is_update is True
+    mock_service.events().patch.assert_called_with(
+        calendarId="cal_id",
+        eventId="recovered_id",
+        body={"summary": "Conflict Show", "iCalUID": "trakt-123"}
+    )
+
+
+def test_upsert_single_event_non_409_error():
+    mock_service = MagicMock()
+    resp = MagicMock(status=500, reason="Server Error")
+    err_500 = HttpError(resp, b"Internal Error")
+    mock_service.events().insert().execute.side_effect = err_500
+
+    with pytest.raises(HttpError):
+        google_sync._upsert_single_event(
+            mock_service,
+            "cal_id",
+            {"summary": "Error Show"},
+            existing_event=None
+        )
+
+
 
 
 def test_fetch_all_google_events():
@@ -232,11 +333,55 @@ def test_sync_ical_to_google_calendar_success():
     cal.add_component(ev2)
 
     mock_service = MagicMock()
-    with patch("google_sync._fetch_all_google_events", return_value=[]), \
+    # One existing changed event, one new event
+    existing_events = [
+        {
+            "id": "existing_ev_1",
+            "iCalUID": "trakt-ep-1",
+            "summary": "Old Summary",  # Changed!
+            "description": "Desc",
+            "start": {"dateTime": ev1.get("dtstart").dt.isoformat()},
+            "end": {"dateTime": ev1.get("dtend").dt.isoformat()}
+        }
+    ]
+    with patch("google_sync._fetch_all_google_events", return_value=existing_events), \
          patch("google_sync._delete_removed_events", return_value=0), \
-         patch("google_sync._sync_single_event", side_effect=[False, True]), \
+         patch("google_sync._upsert_single_event", side_effect=[True, False]) as mock_upsert, \
          patch("time.sleep"):
         google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
+        # ev1 is updated (changed), ev2 is inserted
+        assert mock_upsert.call_count == 2
+
+
+
+def test_sync_ical_to_google_calendar_skip_unchanged():
+    cal = Calendar()
+    ev1 = Event()
+    ev1.add("summary", "Timed Event")
+    ev1.add("description", "Desc")
+    ev1.add("uid", "trakt-ep-1")
+    ev1.add("dtstart", datetime.now(timezone.utc))
+    ev1.add("dtend", datetime.now(timezone.utc) + timedelta(hours=1))
+    cal.add_component(ev1)
+
+    mock_service = MagicMock()
+    existing_events = [
+        {
+            "id": "existing_ev_1",
+            "iCalUID": "trakt-ep-1",
+            "summary": "Timed Event",
+            "description": "Desc",
+            "start": {"dateTime": ev1.get("dtstart").dt.isoformat()},
+            "end": {"dateTime": ev1.get("dtend").dt.isoformat()}
+        }
+    ]
+    with patch("google_sync._fetch_all_google_events", return_value=existing_events), \
+         patch("google_sync._delete_removed_events", return_value=0), \
+         patch("google_sync._upsert_single_event") as mock_upsert, \
+         patch("time.sleep"):
+        google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
+        # Unchanged event was skipped completely
+        mock_upsert.assert_not_called()
 
 
 def test_sync_ical_to_google_calendar_httperror():
@@ -254,8 +399,12 @@ def test_sync_ical_to_google_calendar_httperror():
 
     with patch("google_sync._fetch_all_google_events", return_value=[]), \
          patch("google_sync._delete_removed_events", return_value=0), \
-         patch("google_sync._sync_single_event", side_effect=http_err), \
+         patch("google_sync._upsert_single_event", side_effect=http_err), \
          patch("time.sleep"):
         google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
+
+
+
+
 
 

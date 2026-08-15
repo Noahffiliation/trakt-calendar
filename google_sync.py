@@ -128,32 +128,68 @@ def get_or_create_calendar(service, calendar_name: str, share_email: Optional[st
     return cal_id
 
 
-def _sync_single_event(service, calendar_id: str, event_body: dict, uid: str) -> bool:
+def _event_has_changed(existing_event: Dict[str, Any], new_body: Dict[str, Any]) -> bool:
+    """Check if meaningful event attributes (summary, description, start, end) have changed."""
+    if existing_event.get('summary') != new_body.get('summary'):
+        return True
+    if (existing_event.get('description') or '') != (new_body.get('description') or ''):
+        return True
+
+    existing_start = existing_event.get('start', {})
+    new_start = new_body.get('start', {})
+    if existing_start.get('date') != new_start.get('date') or existing_start.get('dateTime') != new_start.get('dateTime'):
+        return True
+
+    existing_end = existing_event.get('end', {})
+    new_end = new_body.get('end', {})
+    if existing_end.get('date') != new_end.get('date') or existing_end.get('dateTime') != new_end.get('dateTime'):
+        return True
+
+    return False
+
+
+def _upsert_single_event(
+    service: Any,
+    calendar_id: str,
+    event_body: Dict[str, Any],
+    existing_event: Optional[Dict[str, Any]] = None
+) -> bool:
     """
-    Syncs a single event to Google Calendar, returning True if updated, False if created.
+    Inserts or patches an event in Google Calendar, returning True if updated, False if created.
     Uses num_retries=5 for automatic exponential backoff on 403/429 rate limit errors.
     """
-    existing_events = service.events().list(
-        calendarId=calendar_id,
-        iCalUID=uid
-    ).execute(num_retries=5).get('items', [])
-
-    if existing_events:
-        existing_event_id = existing_events[0]['id']
-        service.events().update(
+    if existing_event:
+        event_id = existing_event['id']
+        service.events().patch(
             calendarId=calendar_id,
-            eventId=existing_event_id,
-            body=event_body,
-            sendUpdates='none'
+            eventId=event_id,
+            body=event_body
         ).execute(num_retries=5)
         return True
 
-    service.events().insert(
-        calendarId=calendar_id,
-        body=event_body,
-        sendUpdates='none'
-    ).execute(num_retries=5)
-    return False
+    try:
+        service.events().insert(
+            calendarId=calendar_id,
+            body=event_body
+        ).execute(num_retries=5)
+        return False
+    except HttpError as error:
+        if "duplicate" in str(error).lower() or "already exists" in str(error).lower():
+            uid = event_body.get('iCalUID')
+            logger.debug(f"Event with UID '{uid}' already exists in calendar, attempting patch fallback...")
+            existing_list = service.events().list(
+                calendarId=calendar_id,
+                iCalUID=uid,
+                showDeleted=True
+            ).execute(num_retries=3).get('items', [])
+            if existing_list:
+                service.events().patch(
+                    calendarId=calendar_id,
+                    eventId=existing_list[0]['id'],
+                    body=event_body
+                ).execute(num_retries=5)
+                return True
+        raise
 
 
 def _fetch_all_google_events(service, calendar_id: str) -> List[Dict[str, Any]]:
@@ -196,7 +232,11 @@ def _delete_removed_events(service, calendar_id: str, current_uids: set, existin
     return deleted_count
 
 
-def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
+def sync_ical_to_google_calendar(
+    service,
+    calendar_id: str,
+    ical_obj: Calendar
+):
     """Sync VEVENT items from an icalendar.Calendar object into a Google Calendar and purge removed events."""
     events = [comp for comp in ical_obj.subcomponents if comp.name == 'VEVENT']
     current_uids = {str(event.get('uid')) for event in events if event.get('uid')}
@@ -205,8 +245,13 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
     updated_count = 0
     created_count = 0
 
-    # 1. Fetch all existing events from Google Calendar to check for deletions
+    # 1. Fetch all existing events from Google Calendar to check for deletions & fast upsert lookup
     existing_google_events = _fetch_all_google_events(service, calendar_id)
+    existing_events_by_uid = {
+        g_ev.get('iCalUID'): g_ev
+        for g_ev in existing_google_events
+        if g_ev.get('iCalUID')
+    }
 
     # 2. Delete events no longer in Trakt watchlist / progress (dropped or removed shows)
     deleted_count = _delete_removed_events(service, calendar_id, current_uids, existing_google_events)
@@ -249,8 +294,13 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
                 }
             }
 
+        existing_event = existing_events_by_uid.get(uid)
+        if existing_event and not _event_has_changed(existing_event, event_body):
+            # Event is completely up-to-date, skip redundant API call
+            continue
+
         try:
-            is_update = _sync_single_event(service, calendar_id, event_body, uid)
+            is_update = _upsert_single_event(service, calendar_id, event_body, existing_event)
             if is_update:
                 updated_count += 1
             else:
