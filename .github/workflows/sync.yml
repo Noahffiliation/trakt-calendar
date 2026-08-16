@@ -2,10 +2,7 @@ name: Sync Trakt Calendar
 
 on:
   schedule:
-    # Runs every 8 hours starting at midnight Central Time (CDT / UTC-5)
-    # 05:00 UTC = 12:00 AM CDT (Midnight)
-    # 13:00 UTC = 08:00 AM CDT
-    # 21:00 UTC = 04:00 PM CDT
+    # Runs every 8 hours (05:00 UTC = 12:00 AM CDT, 13:00 UTC = 08:00 AM CDT, 21:00 UTC = 04:00 PM CDT)
     - cron: '0 5,13,21 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
@@ -18,21 +15,22 @@ permissions:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    name: Sync Trakt Calendar & Generate iCal
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4.2.2
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v7
+      - name: Set up Python 3.12.3
+        uses: actions/setup-python@v5.4.0
         with:
-          python-version: '3.13'
+          python-version: '3.12.3'
           cache: 'pip'
 
       - name: Restore / Save Trakt Show Cache
-        uses: actions/cache@v6
+        uses: actions/cache@v4.2.2
         with:
           path: .show_cache.json
           key: trakt-show-cache-${{ runner.os }}-${{ github.run_id }}
@@ -95,7 +93,7 @@ jobs:
 
       - name: Upload iCal Files as Artifacts
         if: success()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4.6.1
         with:
           name: ical-files
           path: '*.ics'

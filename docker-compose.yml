@@ -1,0 +1,11 @@
+services:
+  trakt-calendar:
+    build: .
+    container_name: trakt-calendar
+    restart: "no"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./credentials.json:/app/credentials.json:ro
+      - ./service_account.json:/app/service_account.json:ro

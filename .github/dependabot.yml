@@ -4,8 +4,27 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "deps:"
+    labels:
+      - "dependencies"
+      - "python"
     groups:
       python-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "docker:"
+    labels:
+      - "dependencies"
+      - "docker"
+    groups:
+      docker-dependencies:
         patterns:
           - "*"
 
@@ -13,6 +32,11 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "ci:"
+    labels:
+      - "dependencies"
+      - "ci/cd"
     groups:
       github-actions:
         patterns:
