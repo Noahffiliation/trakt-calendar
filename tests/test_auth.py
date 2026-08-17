@@ -3,7 +3,9 @@ Unit tests for auth.py authentication flow.
 """
 
 from unittest.mock import MagicMock, patch
+
 import pytest
+
 import auth
 
 
@@ -135,6 +137,7 @@ def test_auth_main_refresh_failure():
 def test_auth_dunder_main():
     import runpy
     with patch.dict("os.environ", {}, clear=True), \
+         patch("dotenv.load_dotenv"), \
          patch("builtins.input", side_effect=["", ""]), \
          pytest.raises(SystemExit):
         runpy.run_path("auth.py", run_name="__main__")

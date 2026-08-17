@@ -29,6 +29,3 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 check_untyped_defs = true
 
-[[tool.mypy.overrides]]
-module = "tests.*"
-ignore_errors = true
