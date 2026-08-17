@@ -2,9 +2,17 @@
 Unit tests for iCalendar builder and date filtering logic.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 from icalendar import Calendar
-from ical_builder import build_calendar, build_movies_calendar, build_shows_calendar, parse_datetime, parse_date
+
+from ical_builder import (
+    build_calendar,
+    build_movies_calendar,
+    build_shows_calendar,
+    parse_date,
+    parse_datetime,
+)
 
 
 def test_parse_datetime_and_date():
@@ -13,7 +21,7 @@ def test_parse_datetime_and_date():
     assert dt.year == 2026
     assert dt.month == 7
     assert dt.day == 25
-    assert dt.tzinfo == timezone.utc
+    assert dt.tzinfo == UTC
 
     d = parse_date("2026-08-15")
     assert d is not None
@@ -23,7 +31,7 @@ def test_parse_datetime_and_date():
 
 
 def test_build_calendar_date_filtering():
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     one_month_ago = now_utc - timedelta(days=30)
     two_months_ago = now_utc - timedelta(days=60)
     one_month_future = now_utc + timedelta(days=30)
@@ -160,7 +168,7 @@ def test_movie_all_day_events():
     cal = build_movies_calendar(movies=movies)
     parsed_events = [c for c in cal.subcomponents if c.name == "VEVENT"]
     assert len(parsed_events) == 1
-    
+
     dtstart = parsed_events[0].get("dtstart").dt
     dtend = parsed_events[0].get("dtend").dt
 
@@ -184,11 +192,12 @@ def test_parse_datetime_and_date_edge_cases():
 
     # Test date string in parse_datetime
     dt_from_date = parse_datetime("2026-08-15")
-    assert dt_from_date == datetime(2026, 8, 15, tzinfo=timezone.utc)
+    assert dt_from_date == datetime(2026, 8, 15, tzinfo=UTC)
 
     # Test naive datetime string
     dt_naive = parse_datetime("2026-08-15T10:00:00")
-    assert dt_naive.tzinfo == timezone.utc
+    assert dt_naive is not None
+    assert dt_naive.tzinfo == UTC
 
     assert parse_date(None) is None
     assert parse_date("") is None
@@ -198,7 +207,7 @@ def test_parse_datetime_and_date_edge_cases():
 
 def test_create_movie_event_missing_or_filtered():
     from ical_builder import _create_movie_event
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
 
     # Missing released
     assert _create_movie_event({"movie": {"title": "No Release"}}, start_cutoff=None) is None
@@ -217,7 +226,7 @@ def test_create_movie_event_missing_or_filtered():
 
 def test_create_episode_event_edge_cases():
     from ical_builder import _create_episode_event
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
 
     # Missing first_aired
     assert _create_episode_event({"show": {}, "episode": {}}, start_cutoff=None) is None
@@ -239,7 +248,7 @@ def test_create_episode_event_edge_cases():
 
 def test_create_premiere_event_and_calendar_integration():
     from ical_builder import _create_premiere_event
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
 
     # Missing first_aired
     assert _create_premiere_event({"show": {"title": "No Air"}}, start_cutoff=None) is None
@@ -276,11 +285,11 @@ def test_create_premiere_event_and_calendar_integration():
     assert ev_bare is not None
 
 def test_parse_datetime_and_date_mocked_date_instance():
-    from unittest.mock import patch
     from datetime import date
+    from unittest.mock import patch
     with patch("ical_builder.parser.isoparse", return_value=date(2026, 5, 1)):
         dt = parse_datetime("2026-05-01")
-        assert dt == datetime(2026, 5, 1, tzinfo=timezone.utc)
+        assert dt == datetime(2026, 5, 1, tzinfo=UTC)
 
         d = parse_date("2026-05-01")
         assert d == date(2026, 5, 1)
@@ -298,6 +307,9 @@ def test_create_episode_event_with_season_and_episode_slug():
             "first_aired": "2026-09-01T20:00:00.000Z"
         }
     }, start_cutoff=None)
+    assert ev is not None
+
+
 def test_safe_runtime_exceptions():
     from ical_builder import _safe_runtime
     assert _safe_runtime("not-a-number", default=45) == 45

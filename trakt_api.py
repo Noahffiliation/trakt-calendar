@@ -3,12 +3,12 @@ Trakt API Client for fetching watchlist, watched progress, hidden shows, and sho
 Includes automatic rate-limiting retry handling, request pacing, and local caching for show data.
 """
 
-from typing import Any, Dict, List, Optional, Set
+import json
 import logging
 import os
-import json
 import time
-from datetime import datetime, timedelta, timezone
+from typing import Any
+
 import requests
 
 logger = logging.getLogger(__name__)
@@ -53,8 +53,8 @@ def _make_http_request(
     method: str,
     url: str,
     headers: dict,
-    params: Optional[dict],
-    session: Optional[requests.Session] = None
+    params: dict | None,
+    session: requests.Session | None = None
 ) -> requests.Response:
     requester = session if session is not None else requests
     if method.upper() == "GET":
@@ -72,18 +72,18 @@ class TraktClient:
     def __init__(
         self,
         client_id: str,
-        access_token: Optional[str] = None,
-        username: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        refresh_token: Optional[str] = None,
+        access_token: str | None = None,
+        username: str | None = None,
+        client_secret: str | None = None,
+        refresh_token: str | None = None,
         base_url: str = TRAKT_API_URL,
         cache_file: str = CACHE_FILE,
         refreshed_tokens_file: str = REFRESHED_TOKENS_FILE,
-        session: Optional[requests.Session] = None
+        session: requests.Session | None = None
     ):
         if not client_id:
             raise ValueError("Trakt Client ID is required.")
-        
+
         self.client_id = client_id
         self.access_token = access_token
         self.username = username
@@ -95,7 +95,7 @@ class TraktClient:
         self.session = session or requests.Session()
         self._show_cache = self._load_cache()
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
             "trakt-api-version": "2",
@@ -165,10 +165,10 @@ class TraktClient:
             logger.warning(f"Error during automatic token refresh: {e}")
             return False
 
-    def _load_cache(self) -> Dict[str, Any]:
+    def _load_cache(self) -> dict[str, Any]:
         if os.path.exists(self.cache_file):
             try:
-                with open(self.cache_file, "r", encoding="utf-8") as f:
+                with open(self.cache_file, encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Could not load cache file '{self.cache_file}': {e}")
@@ -187,16 +187,16 @@ class TraktClient:
         self,
         method: str,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         max_retries: int = 5
     ) -> requests.Response:
         """Execute HTTP request with automatic retry logic for 401 auth refresh, rate limits (429) & Cloudflare pacing."""
         refreshed_attempted = False
-        
+
         for attempt in range(1, max_retries + 1):
             headers = self._get_headers()
             response = _make_http_request(method, url, headers, params, session=self.session)
-            
+
             if response.status_code == 401 and not refreshed_attempted:
                 refreshed_attempted = True
                 if self._try_refresh_token():
@@ -219,8 +219,8 @@ class TraktClient:
             return f"{self.base_url}/users/{self.username}/{user_path}"
         raise ValueError("Either access_token or username must be provided.")
 
-    def _fetch_paginated_list(self, endpoint: str, raise_on_error: bool = True) -> List[Dict[str, Any]]:
-        items: List[Dict[str, Any]] = []
+    def _fetch_paginated_list(self, endpoint: str, raise_on_error: bool = True) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
         page = 1
         limit = 100
 
@@ -245,19 +245,19 @@ class TraktClient:
 
         return items
 
-    def get_watchlist(self, item_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_watchlist(self, item_type: str | None = None) -> list[dict[str, Any]]:
         """Fetch all watchlist items for the user with pagination."""
         sync_path = f"sync/watchlist/{item_type}" if item_type else "sync/watchlist"
         user_path = f"watchlist/{item_type}" if item_type else "watchlist"
         endpoint = self._get_user_endpoint(sync_path, user_path)
         return self._fetch_paginated_list(endpoint, raise_on_error=True)
 
-    def get_watched_shows(self) -> List[Dict[str, Any]]:
+    def get_watched_shows(self) -> list[dict[str, Any]]:
         """Fetch watched shows for the user with pagination."""
         endpoint = self._get_user_endpoint("sync/watched/shows", "watched/shows")
         return self._fetch_paginated_list(endpoint, raise_on_error=False)
 
-    def get_hidden_show_ids(self) -> Set[int]:
+    def get_hidden_show_ids(self) -> set[int]:
         """Fetch set of show Trakt IDs that have been dropped or hidden by the user."""
         if not self.access_token:
             logger.warning(
@@ -268,7 +268,7 @@ class TraktClient:
             return set()
 
         sections = ["progress_watched", "progress_watched_reset", "calendar", "dropped", "recommendations"]
-        hidden_ids: Set[int] = set()
+        hidden_ids: set[int] = set()
 
         for section in sections:
             endpoint = f"{self.base_url}/users/hidden/{section}"
@@ -290,8 +290,8 @@ class TraktClient:
     def get_show_seasons_with_episodes(
         self,
         show_id: str | int,
-        show_status: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        show_status: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Fetch all seasons and episode air dates for a show with local caching and request pacing.
         GET /shows/{id}/seasons?extended=episodes,full
@@ -313,7 +313,7 @@ class TraktClient:
 
         endpoint = f"{self.base_url}/shows/{show_id}/seasons"
         params = {"extended": "episodes,full"}
-        
+
         response = self._request_with_retry("GET", endpoint, params=params)
 
         if response.status_code == 404:

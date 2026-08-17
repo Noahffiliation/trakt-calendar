@@ -2,11 +2,12 @@
 Unit tests for google_sync.py Google Calendar integration.
 """
 
-from unittest.mock import MagicMock, patch, mock_open
+from datetime import UTC, date, datetime, timedelta
+from unittest.mock import MagicMock, mock_open, patch
+
 import pytest
-from datetime import datetime, date, timezone, timedelta
-from icalendar import Calendar, Event
 from googleapiclient.errors import HttpError
+from icalendar import Calendar, Event
 
 import google_sync
 
@@ -88,7 +89,7 @@ def test_get_google_calendar_service_oauth_fallback():
 
 def test_share_calendar_with_email():
     mock_service = MagicMock()
-    
+
     # Test when already shared
     mock_service.acl().list().execute().get.return_value = [
         {"scope": {"value": "test@example.com"}}
@@ -292,7 +293,7 @@ def test_share_calendar_with_email_none():
 def test_share_calendar_with_email_httperror():
     mock_service = MagicMock()
     mock_service.acl().list().execute().get.return_value = []
-    
+
     resp = MagicMock(status=400, reason="Bad Request")
     http_err = HttpError(resp, b"ACL error")
     mock_service.acl().insert().execute.side_effect = http_err
@@ -319,8 +320,8 @@ def test_sync_ical_to_google_calendar_success():
     ev1.add("summary", "Timed Event")
     ev1.add("description", "Desc")
     ev1.add("uid", "trakt-ep-1")
-    ev1.add("dtstart", datetime.now(timezone.utc))
-    ev1.add("dtend", datetime.now(timezone.utc) + timedelta(hours=1))
+    ev1.add("dtstart", datetime.now(UTC))
+    ev1.add("dtend", datetime.now(UTC) + timedelta(hours=1))
 
     ev2 = Event()
     ev2.add("summary", "All Day Event")
@@ -360,8 +361,8 @@ def test_sync_ical_to_google_calendar_skip_unchanged():
     ev1.add("summary", "Timed Event")
     ev1.add("description", "Desc")
     ev1.add("uid", "trakt-ep-1")
-    ev1.add("dtstart", datetime.now(timezone.utc))
-    ev1.add("dtend", datetime.now(timezone.utc) + timedelta(hours=1))
+    ev1.add("dtstart", datetime.now(UTC))
+    ev1.add("dtend", datetime.now(UTC) + timedelta(hours=1))
     cal.add_component(ev1)
 
     mock_service = MagicMock()
@@ -389,8 +390,8 @@ def test_sync_ical_to_google_calendar_httperror():
     ev1 = Event()
     ev1.add("summary", "Timed Event")
     ev1.add("uid", "trakt-ep-1")
-    ev1.add("dtstart", datetime.now(timezone.utc))
-    ev1.add("dtend", datetime.now(timezone.utc) + timedelta(hours=1))
+    ev1.add("dtstart", datetime.now(UTC))
+    ev1.add("dtend", datetime.now(UTC) + timedelta(hours=1))
     cal.add_component(ev1)
 
     mock_service = MagicMock()

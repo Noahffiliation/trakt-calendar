@@ -3,8 +3,9 @@ Unit tests for generate_ical.py script execution and categorization logic.
 """
 
 from unittest.mock import MagicMock, patch
+
 import pytest
-from datetime import datetime, timezone
+
 import generate_ical
 from trakt_api import TraktAPIError
 
@@ -162,7 +163,7 @@ def test_parse_args():
 def test_add_candidate_show_edge_cases():
     hidden = {10}
     processed = {20}
-    candidates = []
+    candidates: list[dict] = []
 
     # Missing show ID
     assert generate_ical._add_candidate_show({}, hidden, processed, candidates) is False

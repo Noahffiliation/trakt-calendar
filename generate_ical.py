@@ -4,16 +4,17 @@ and optionally sync directly to Google Calendar via Google Calendar API.
 """
 
 import argparse
-from datetime import datetime, timedelta, timezone
 import logging
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
-from trakt_api import TraktClient, TraktAPIError
 from ical_builder import build_calendar, build_movies_calendar, build_shows_calendar
+from trakt_api import TraktAPIError, TraktClient
 
 # Load .env if present
 load_dotenv()
@@ -84,9 +85,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def validate_safe_path(file_path_str: str, base_dir: Path = None) -> Path:
-    """
-    Validates that a file path string resolves safely within the designated base directory
+def validate_safe_path(file_path_str: str, base_dir: Path | None = None) -> Path:
+    """Validates that a file path string resolves safely within the designated base directory
     or working directory to prevent path traversal security vulnerabilities (S8707).
     """
     target_path = Path(file_path_str)
@@ -112,7 +112,7 @@ def validate_safe_path(file_path_str: str, base_dir: Path = None) -> Path:
     return resolved_path
 
 
-def write_ics(calendar, file_path_str: str, base_dir: Path = None):
+def write_ics(calendar, file_path_str: str, base_dir: Path | None = None):
     path = validate_safe_path(file_path_str, base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(calendar.to_ical())
@@ -153,10 +153,10 @@ def _categorize_items(
     client: TraktClient,
     include_watched: bool
 ):
-    movies = []
-    candidate_shows = []
-    direct_episodes = []
-    processed_show_ids = set()
+    movies: list[dict[str, Any]] = []
+    candidate_shows: list[dict[str, Any]] = []
+    direct_episodes: list[dict[str, Any]] = []
+    processed_show_ids: set[int] = set()
 
     for item in watchlist_items:
         item_type = item.get("type")
@@ -170,10 +170,10 @@ def _categorize_items(
     if include_watched:
         logger.info("Fetching shows with watched progress...")
         watched_shows_data = client.get_watched_shows()
-        added_count = sum(
-            1 for item in watched_shows_data
+        added_count = len([
+            item for item in watched_shows_data
             if _add_candidate_show(item.get("show", item), hidden_show_ids, processed_show_ids, candidate_shows)
-        )
+        ])
         logger.info(f"Added {added_count} show(s) in progress (excluding dropped/hidden shows).")
 
     logger.info(f"Categorized total: {len(movies)} movie(s), {len(candidate_shows)} show(s) to check, {len(direct_episodes)} direct episode(s).")
@@ -219,7 +219,11 @@ def _fetch_show_episodes(client: TraktClient, candidate_shows: list, direct_epis
 def _sync_to_google(movies_cal, shows_cal):
     logger.info("Initializing Direct Google Calendar API Sync...")
     try:
-        from google_sync import get_google_calendar_service, get_or_create_calendar, sync_ical_to_google_calendar
+        from google_sync import (
+            get_google_calendar_service,
+            get_or_create_calendar,
+            sync_ical_to_google_calendar,
+        )
         service = get_google_calendar_service()
 
         movies_cal_id = get_or_create_calendar(service, "Trakt Movies")
@@ -228,7 +232,7 @@ def _sync_to_google(movies_cal, shows_cal):
         shows_cal_id = get_or_create_calendar(service, "Trakt TV Shows")
         sync_ical_to_google_calendar(service, shows_cal_id, shows_cal)
 
-        logger.info("✅ Direct Google Calendar API sync complete!") 
+        logger.info("✅ Direct Google Calendar API sync complete!")
     except Exception:
         logger.exception("❌ Google Calendar API sync error")
 
@@ -241,7 +245,7 @@ def main():
 
     client = _init_client(args)
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     start_cutoff = now_utc - timedelta(days=args.days_back)
     logger.info(f"Filtering items released/airing on or after: {start_cutoff.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
