@@ -25,10 +25,10 @@ def refresh_oauth_token(client_id: str, client_secret: str, refresh_token: str) 
             "client_id": client_id,
             "client_secret": client_secret,
             "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
-            "grant_type": "refresh_token"
+            "grant_type": "refresh_token",
         },
         headers=JSON_HEADERS,
-        timeout=30
+        timeout=30,
     )
     if response.status_code == 200:
         return response.json()
@@ -39,8 +39,15 @@ def refresh_oauth_token(client_id: str, client_secret: str, refresh_token: str) 
 
 def main(args=None):
     import argparse
-    parser = argparse.ArgumentParser(description="Authenticate with Trakt or refresh OAuth access token.")
-    parser.add_argument("--refresh", action="store_true", help="Attempt to refresh access token using TRAKT_REFRESH_TOKEN")
+
+    parser = argparse.ArgumentParser(
+        description="Authenticate with Trakt or refresh OAuth access token."
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Attempt to refresh access token using TRAKT_REFRESH_TOKEN",
+    )
     cli_args = parser.parse_args(args)
 
     client_id = os.getenv("TRAKT_CLIENT_ID") or input("Enter Trakt Client ID: ").strip()
@@ -51,7 +58,9 @@ def main(args=None):
         sys.exit(1)
 
     if cli_args.refresh:
-        refresh_tok = os.getenv("TRAKT_REFRESH_TOKEN") or input("Enter Trakt Refresh Token: ").strip()
+        refresh_tok = (
+            os.getenv("TRAKT_REFRESH_TOKEN") or input("Enter Trakt Refresh Token: ").strip()
+        )
         if not refresh_tok:
             print("Error: Refresh Token is required for token refresh.")
             sys.exit(1)
@@ -69,7 +78,7 @@ def main(args=None):
         f"{TRAKT_API_URL}/oauth/device/code",
         json={"client_id": client_id},
         headers=JSON_HEADERS,
-        timeout=30
+        timeout=30,
     )
 
     if response.status_code != 200:
@@ -91,13 +100,9 @@ def main(args=None):
     print("Requesting access token...")
     token_resp = requests.post(
         f"{TRAKT_API_URL}/oauth/device/token",
-        json={
-            "code": device_code,
-            "client_id": client_id,
-            "client_secret": client_secret
-        },
+        json={"code": device_code, "client_id": client_id, "client_secret": client_secret},
         headers=JSON_HEADERS,
-        timeout=30
+        timeout=30,
     )
 
     if token_resp.status_code == 200:

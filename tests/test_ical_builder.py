@@ -43,7 +43,7 @@ def test_build_calendar_date_filtering():
                 "title": "Old Movie",
                 "year": 2026,
                 "released": two_months_ago.strftime("%Y-%m-%d"),
-                "ids": {"trakt": 1}
+                "ids": {"trakt": 1},
             }
         },
         {
@@ -51,7 +51,7 @@ def test_build_calendar_date_filtering():
                 "title": "Recent Movie",
                 "year": 2026,
                 "released": (now_utc - timedelta(days=15)).strftime("%Y-%m-%d"),
-                "ids": {"trakt": 2}
+                "ids": {"trakt": 2},
             }
         },
         {
@@ -59,7 +59,7 @@ def test_build_calendar_date_filtering():
                 "title": "Future Movie",
                 "year": 2026,
                 "released": one_month_future.strftime("%Y-%m-%d"),
-                "ids": {"trakt": 3}
+                "ids": {"trakt": 3},
             }
         },
         {
@@ -67,9 +67,9 @@ def test_build_calendar_date_filtering():
                 "title": "Far Future Movie",
                 "year": 2027,
                 "released": one_year_future.strftime("%Y-%m-%d"),
-                "ids": {"trakt": 4}
+                "ids": {"trakt": 4},
             }
-        }
+        },
     ]
 
     episodes = [
@@ -80,8 +80,8 @@ def test_build_calendar_date_filtering():
                 "number": 1,
                 "title": "Past Ep",
                 "first_aired": two_months_ago.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "ids": {"trakt": 101}
-            }
+                "ids": {"trakt": 101},
+            },
         },
         {
             "show": {"title": "Test Show", "ids": {"trakt": 100}},
@@ -90,8 +90,8 @@ def test_build_calendar_date_filtering():
                 "number": 2,
                 "title": "Recent Ep",
                 "first_aired": (now_utc - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "ids": {"trakt": 102}
-            }
+                "ids": {"trakt": 102},
+            },
         },
         {
             "show": {"title": "Test Show", "ids": {"trakt": 100}},
@@ -100,16 +100,16 @@ def test_build_calendar_date_filtering():
                 "number": 3,
                 "title": "Future Ep",
                 "first_aired": one_month_future.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "ids": {"trakt": 103}
-            }
-        }
+                "ids": {"trakt": 103},
+            },
+        },
     ]
 
     cal = build_calendar(
         movies=movies,
         episodes=episodes,
         start_cutoff=one_month_ago,
-        calendar_name="Test Trakt Calendar"
+        calendar_name="Test Trakt Calendar",
     )
 
     events = [comp for comp in cal.subcomponents if comp.name == "VEVENT"]
@@ -136,7 +136,7 @@ def test_ical_valid_ics_formatting():
                 "overview": "A thief who steals corporate secrets through dream-sharing technology.",
                 "rating": 8.8,
                 "genres": ["Action", "Sci-Fi"],
-                "ids": {"trakt": 166, "slug": "inception-2010", "imdb": "tt1375666"}
+                "ids": {"trakt": 166, "slug": "inception-2010", "imdb": "tt1375666"},
             }
         }
     ]
@@ -154,13 +154,14 @@ def test_ical_valid_ics_formatting():
 
 def test_movie_all_day_events():
     from datetime import date
+
     movies = [
         {
             "movie": {
                 "title": "ISO Release Movie",
                 "year": 2026,
                 "released": "2026-07-25T18:00:00.000Z",
-                "ids": {"trakt": 999}
+                "ids": {"trakt": 999},
             }
         }
     ]
@@ -207,16 +208,19 @@ def test_parse_datetime_and_date_edge_cases():
 
 def test_create_movie_event_missing_or_filtered():
     from ical_builder import _create_movie_event
+
     now_utc = datetime.now(UTC)
 
     # Missing released
     assert _create_movie_event({"movie": {"title": "No Release"}}, start_cutoff=None) is None
 
     # Released before cutoff
-    assert _create_movie_event(
-        {"movie": {"title": "Old", "released": "2020-01-01"}},
-        start_cutoff=now_utc
-    ) is None
+    assert (
+        _create_movie_event(
+            {"movie": {"title": "Old", "released": "2020-01-01"}}, start_cutoff=now_utc
+        )
+        is None
+    )
 
     # Movie without year or slug
     ev = _create_movie_event({"title": "Basic Movie", "released": "2026-09-01"}, start_cutoff=None)
@@ -226,38 +230,49 @@ def test_create_movie_event_missing_or_filtered():
 
 def test_create_episode_event_edge_cases():
     from ical_builder import _create_episode_event
+
     now_utc = datetime.now(UTC)
 
     # Missing first_aired
     assert _create_episode_event({"show": {}, "episode": {}}, start_cutoff=None) is None
 
     # Aired before cutoff
-    assert _create_episode_event(
-        {"show": {}, "episode": {"first_aired": "2020-01-01T00:00:00.000Z"}},
-        start_cutoff=now_utc
-    ) is None
+    assert (
+        _create_episode_event(
+            {"show": {}, "episode": {"first_aired": "2020-01-01T00:00:00.000Z"}},
+            start_cutoff=now_utc,
+        )
+        is None
+    )
 
     # Episode with slug but no season/number
-    ev = _create_episode_event({
-        "show": {"title": "Show Slug", "ids": {"slug": "show-slug"}},
-        "episode": {"first_aired": "2026-09-01T00:00:00.000Z"}
-    }, start_cutoff=None)
+    ev = _create_episode_event(
+        {
+            "show": {"title": "Show Slug", "ids": {"slug": "show-slug"}},
+            "episode": {"first_aired": "2026-09-01T00:00:00.000Z"},
+        },
+        start_cutoff=None,
+    )
     assert ev is not None
     assert "https://app.trakt.tv/shows/show-slug" in str(ev.get("description"))
 
 
 def test_create_premiere_event_and_calendar_integration():
     from ical_builder import _create_premiere_event
+
     now_utc = datetime.now(UTC)
 
     # Missing first_aired
     assert _create_premiere_event({"show": {"title": "No Air"}}, start_cutoff=None) is None
 
     # Aired before cutoff
-    assert _create_premiere_event(
-        {"show": {"title": "Old Show", "first_aired": "2020-01-01T00:00:00.000Z"}},
-        start_cutoff=now_utc
-    ) is None
+    assert (
+        _create_premiere_event(
+            {"show": {"title": "Old Show", "first_aired": "2020-01-01T00:00:00.000Z"}},
+            start_cutoff=now_utc,
+        )
+        is None
+    )
 
     # Valid premiere with slug and overview
     prem = {
@@ -266,7 +281,7 @@ def test_create_premiere_event_and_calendar_integration():
             "first_aired": "2026-09-01T00:00:00.000Z",
             "runtime": 50,
             "overview": "A brand new series overview.",
-            "ids": {"trakt": 777, "slug": "new-series"}
+            "ids": {"trakt": 777, "slug": "new-series"},
         }
     }
     ev = _create_premiere_event(prem, start_cutoff=None)
@@ -275,18 +290,15 @@ def test_create_premiere_event_and_calendar_integration():
     assert "https://app.trakt.tv/shows/new-series" in str(ev.get("description"))
 
     # Premiere without slug or overview
-    prem_bare = {
-        "show": {
-            "title": "Bare Show",
-            "first_aired": "2026-09-01T00:00:00.000Z"
-        }
-    }
+    prem_bare = {"show": {"title": "Bare Show", "first_aired": "2026-09-01T00:00:00.000Z"}}
     ev_bare = _create_premiere_event(prem_bare, start_cutoff=None)
     assert ev_bare is not None
+
 
 def test_parse_datetime_and_date_mocked_date_instance():
     from datetime import date
     from unittest.mock import patch
+
     with patch("ical_builder.parser.isoparse", return_value=date(2026, 5, 1)):
         dt = parse_datetime("2026-05-01")
         assert dt == datetime(2026, 5, 1, tzinfo=UTC)
@@ -297,38 +309,33 @@ def test_parse_datetime_and_date_mocked_date_instance():
 
 def test_create_episode_event_with_season_and_episode_slug():
     from ical_builder import _create_episode_event
-    ev = _create_episode_event({
-        "show": {"title": "Hit Show", "ids": {"trakt": 123, "slug": "hit-show"}},
-        "episode": {
-            "title": "Season Finale",
-            "season": 2,
-            "number": 10,
-            "runtime": "60",
-            "first_aired": "2026-09-01T20:00:00.000Z"
-        }
-    }, start_cutoff=None)
+
+    ev = _create_episode_event(
+        {
+            "show": {"title": "Hit Show", "ids": {"trakt": 123, "slug": "hit-show"}},
+            "episode": {
+                "title": "Season Finale",
+                "season": 2,
+                "number": 10,
+                "runtime": "60",
+                "first_aired": "2026-09-01T20:00:00.000Z",
+            },
+        },
+        start_cutoff=None,
+    )
     assert ev is not None
 
 
 def test_safe_runtime_exceptions():
     from ical_builder import _safe_runtime
+
     assert _safe_runtime("not-a-number", default=45) == 45
     assert _safe_runtime([], default=45) == 45
     assert _safe_runtime(0, default=45) == 45
 
 
 def test_build_calendar_with_premieres():
-    prem = {
-        "show": {
-            "title": "Combined Premiere",
-            "first_aired": "2026-09-01T00:00:00.000Z"
-        }
-    }
+    prem = {"show": {"title": "Combined Premiere", "first_aired": "2026-09-01T00:00:00.000Z"}}
     cal = build_calendar(movies=[], episodes=[], shows_premieres=[prem], start_cutoff=None)
     events = [c for c in cal.subcomponents if c.name == "VEVENT"]
     assert len(events) == 1
-
-
-
-
-

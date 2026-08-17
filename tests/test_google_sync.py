@@ -16,8 +16,13 @@ def test_get_oauth_credentials_existing_valid():
     mock_creds = MagicMock()
     mock_creds.valid = True
 
-    with patch("os.path.exists", return_value=True), \
-         patch("google.oauth2.credentials.Credentials.from_authorized_user_file", return_value=mock_creds):
+    with (
+        patch("os.path.exists", return_value=True),
+        patch(
+            "google.oauth2.credentials.Credentials.from_authorized_user_file",
+            return_value=mock_creds,
+        ),
+    ):
         creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
         assert creds == mock_creds
 
@@ -29,8 +34,13 @@ def test_get_oauth_credentials_refresh_success():
     mock_creds.refresh_token = "rt"
     mock_creds.refresh.return_value = None
 
-    with patch("os.path.exists", return_value=True), \
-         patch("google.oauth2.credentials.Credentials.from_authorized_user_file", return_value=mock_creds):
+    with (
+        patch("os.path.exists", return_value=True),
+        patch(
+            "google.oauth2.credentials.Credentials.from_authorized_user_file",
+            return_value=mock_creds,
+        ),
+    ):
         creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
         assert creds == mock_creds
         mock_creds.refresh.assert_called_once()
@@ -48,19 +58,24 @@ def test_get_oauth_credentials_refresh_fail_and_flow():
     mock_new_creds.to_json.return_value = '{"token": "xyz"}'
     mock_flow.run_local_server.return_value = mock_new_creds
 
-    with patch("os.path.exists", side_effect=lambda p: p in ("token.json", "credentials.json")), \
-         patch("google.oauth2.credentials.Credentials.from_authorized_user_file", return_value=mock_creds), \
-         patch("google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file", return_value=mock_flow), \
-         patch("builtins.open", mock_open()):
+    with (
+        patch("os.path.exists", side_effect=lambda p: p in ("token.json", "credentials.json")),
+        patch(
+            "google.oauth2.credentials.Credentials.from_authorized_user_file",
+            return_value=mock_creds,
+        ),
+        patch(
+            "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+            return_value=mock_flow,
+        ),
+        patch("builtins.open", mock_open()),
+    ):
         creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
         assert creds == mock_new_creds
 
 
-
-
 def test_get_oauth_credentials_missing_file():
-    with patch("os.path.exists", return_value=False), \
-         pytest.raises(FileNotFoundError):
+    with patch("os.path.exists", return_value=False), pytest.raises(FileNotFoundError):
         google_sync._get_oauth_credentials("credentials.json", "token.json")
 
 
@@ -68,22 +83,31 @@ def test_get_google_calendar_service_service_account():
     mock_creds = MagicMock()
     mock_build = MagicMock()
 
-    with patch("os.path.exists", side_effect=lambda p: p == "service_account.json"), \
-         patch("google.oauth2.service_account.Credentials.from_service_account_file", return_value=mock_creds), \
-         patch("google_sync.build", return_value=mock_build) as mock_b:
+    with (
+        patch("os.path.exists", side_effect=lambda p: p == "service_account.json"),
+        patch(
+            "google.oauth2.service_account.Credentials.from_service_account_file",
+            return_value=mock_creds,
+        ),
+        patch("google_sync.build", return_value=mock_build) as mock_b,
+    ):
         service = google_sync.get_google_calendar_service("service_account.json")
         assert service == mock_build
-        mock_b.assert_called_once_with('calendar', 'v3', credentials=mock_creds)
+        mock_b.assert_called_once_with("calendar", "v3", credentials=mock_creds)
 
 
 def test_get_google_calendar_service_oauth_fallback():
     mock_creds = MagicMock()
     mock_build = MagicMock()
 
-    with patch("os.path.exists", return_value=False), \
-         patch("google_sync._get_oauth_credentials", return_value=mock_creds), \
-         patch("google_sync.build", return_value=mock_build):
-        service = google_sync.get_google_calendar_service("service_account.json", "credentials.json")
+    with (
+        patch("os.path.exists", return_value=False),
+        patch("google_sync._get_oauth_credentials", return_value=mock_creds),
+        patch("google_sync.build", return_value=mock_build),
+    ):
+        service = google_sync.get_google_calendar_service(
+            "service_account.json", "credentials.json"
+        )
         assert service == mock_build
 
 
@@ -107,7 +131,7 @@ def test_get_or_create_calendar_existing():
     mock_service = MagicMock()
     mock_service.calendarList().list().execute.return_value = {
         "items": [{"summary": "Trakt Movies", "id": "cal_123"}],
-        "nextPageToken": None
+        "nextPageToken": None,
     }
 
     cal_id = google_sync.get_or_create_calendar(mock_service, "Trakt Movies")
@@ -116,10 +140,7 @@ def test_get_or_create_calendar_existing():
 
 def test_get_or_create_calendar_new():
     mock_service = MagicMock()
-    mock_service.calendarList().list().execute.return_value = {
-        "items": [],
-        "nextPageToken": None
-    }
+    mock_service.calendarList().list().execute.return_value = {"items": [], "nextPageToken": None}
     mock_service.calendars().insert().execute.return_value = {"id": "new_cal_456"}
 
     cal_id = google_sync.get_or_create_calendar(mock_service, "Trakt TV Shows")
@@ -131,48 +152,78 @@ def test_event_has_changed_helper():
         "summary": "Movie A",
         "description": "Desc A",
         "start": {"date": "2026-08-01"},
-        "end": {"date": "2026-08-02"}
+        "end": {"date": "2026-08-02"},
     }
 
     # Identical
-    assert google_sync._event_has_changed(base_existing, {
-        "summary": "Movie A",
-        "description": "Desc A",
-        "start": {"date": "2026-08-01"},
-        "end": {"date": "2026-08-02"}
-    }) is False
+    assert (
+        google_sync._event_has_changed(
+            base_existing,
+            {
+                "summary": "Movie A",
+                "description": "Desc A",
+                "start": {"date": "2026-08-01"},
+                "end": {"date": "2026-08-02"},
+            },
+        )
+        is False
+    )
 
     # Summary changed
-    assert google_sync._event_has_changed(base_existing, {
-        "summary": "Movie B",
-        "description": "Desc A",
-        "start": {"date": "2026-08-01"},
-        "end": {"date": "2026-08-02"}
-    }) is True
+    assert (
+        google_sync._event_has_changed(
+            base_existing,
+            {
+                "summary": "Movie B",
+                "description": "Desc A",
+                "start": {"date": "2026-08-01"},
+                "end": {"date": "2026-08-02"},
+            },
+        )
+        is True
+    )
 
     # Description changed
-    assert google_sync._event_has_changed(base_existing, {
-        "summary": "Movie A",
-        "description": "New Desc",
-        "start": {"date": "2026-08-01"},
-        "end": {"date": "2026-08-02"}
-    }) is True
+    assert (
+        google_sync._event_has_changed(
+            base_existing,
+            {
+                "summary": "Movie A",
+                "description": "New Desc",
+                "start": {"date": "2026-08-01"},
+                "end": {"date": "2026-08-02"},
+            },
+        )
+        is True
+    )
 
     # Start changed
-    assert google_sync._event_has_changed(base_existing, {
-        "summary": "Movie A",
-        "description": "Desc A",
-        "start": {"date": "2026-08-05"},
-        "end": {"date": "2026-08-02"}
-    }) is True
+    assert (
+        google_sync._event_has_changed(
+            base_existing,
+            {
+                "summary": "Movie A",
+                "description": "Desc A",
+                "start": {"date": "2026-08-05"},
+                "end": {"date": "2026-08-02"},
+            },
+        )
+        is True
+    )
 
     # End changed
-    assert google_sync._event_has_changed(base_existing, {
-        "summary": "Movie A",
-        "description": "Desc A",
-        "start": {"date": "2026-08-01"},
-        "end": {"date": "2026-08-06"}
-    }) is True
+    assert (
+        google_sync._event_has_changed(
+            base_existing,
+            {
+                "summary": "Movie A",
+                "description": "Desc A",
+                "start": {"date": "2026-08-01"},
+                "end": {"date": "2026-08-06"},
+            },
+        )
+        is True
+    )
 
 
 def test_upsert_single_event_update_and_insert():
@@ -180,24 +231,16 @@ def test_upsert_single_event_update_and_insert():
 
     # Test update existing event via patch
     is_update = google_sync._upsert_single_event(
-        mock_service,
-        "cal_id",
-        {"summary": "New Summary"},
-        existing_event={"id": "ev_1"}
+        mock_service, "cal_id", {"summary": "New Summary"}, existing_event={"id": "ev_1"}
     )
     assert is_update is True
     mock_service.events().patch.assert_called_with(
-        calendarId="cal_id",
-        eventId="ev_1",
-        body={"summary": "New Summary"}
+        calendarId="cal_id", eventId="ev_1", body={"summary": "New Summary"}
     )
 
     # Test insert new event
     is_update_2 = google_sync._upsert_single_event(
-        mock_service,
-        "cal_id",
-        {"summary": "Brand New"},
-        existing_event=None
+        mock_service, "cal_id", {"summary": "Brand New"}, existing_event=None
     )
     assert is_update_2 is False
     mock_service.events().insert.assert_called_once()
@@ -216,13 +259,13 @@ def test_upsert_single_event_409_duplicate_fallback():
         mock_service,
         "cal_id",
         {"summary": "Conflict Show", "iCalUID": "trakt-123"},
-        existing_event=None
+        existing_event=None,
     )
     assert is_update is True
     mock_service.events().patch.assert_called_with(
         calendarId="cal_id",
         eventId="recovered_id",
-        body={"summary": "Conflict Show", "iCalUID": "trakt-123"}
+        body={"summary": "Conflict Show", "iCalUID": "trakt-123"},
     )
 
 
@@ -234,20 +277,15 @@ def test_upsert_single_event_non_409_error():
 
     with pytest.raises(HttpError):
         google_sync._upsert_single_event(
-            mock_service,
-            "cal_id",
-            {"summary": "Error Show"},
-            existing_event=None
+            mock_service, "cal_id", {"summary": "Error Show"}, existing_event=None
         )
-
-
 
 
 def test_fetch_all_google_events():
     mock_service = MagicMock()
     mock_service.events().list().execute.side_effect = [
         {"items": [{"id": "1"}], "nextPageToken": "token2"},
-        {"items": [{"id": "2"}], "nextPageToken": None}
+        {"items": [{"id": "2"}], "nextPageToken": None},
     ]
 
     events = google_sync._fetch_all_google_events(mock_service, "cal_id")
@@ -259,14 +297,18 @@ def test_delete_removed_events():
     existing_events = [
         {"id": "ev1", "iCalUID": "trakt-movie-1", "summary": "Movie 1"},
         {"id": "ev2", "iCalUID": "trakt-movie-2", "summary": "Movie 2"},
-        {"id": "ev3", "iCalUID": "other-uid-3", "summary": "Other"}
+        {"id": "ev3", "iCalUID": "other-uid-3", "summary": "Other"},
     ]
 
     current_uids = {"trakt-movie-1"}
     with patch("time.sleep"):
-        deleted = google_sync._delete_removed_events(mock_service, "cal_id", current_uids, existing_events)
+        deleted = google_sync._delete_removed_events(
+            mock_service, "cal_id", current_uids, existing_events
+        )
     assert deleted == 1
-    mock_service.events().delete.assert_called_once_with(calendarId="cal_id", eventId="ev2", sendUpdates="none")
+    mock_service.events().delete.assert_called_once_with(
+        calendarId="cal_id", eventId="ev2", sendUpdates="none"
+    )
 
 
 def test_get_oauth_credentials_corrupt_user_file():
@@ -275,10 +317,18 @@ def test_get_oauth_credentials_corrupt_user_file():
     mock_new_creds.to_json.return_value = '{"token": "xyz"}'
     mock_flow.run_local_server.return_value = mock_new_creds
 
-    with patch("os.path.exists", side_effect=lambda p: p in ("token.json", "credentials.json")), \
-         patch("google.oauth2.credentials.Credentials.from_authorized_user_file", side_effect=Exception("Corrupt file")), \
-         patch("google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file", return_value=mock_flow), \
-         patch("builtins.open", mock_open()):
+    with (
+        patch("os.path.exists", side_effect=lambda p: p in ("token.json", "credentials.json")),
+        patch(
+            "google.oauth2.credentials.Credentials.from_authorized_user_file",
+            side_effect=Exception("Corrupt file"),
+        ),
+        patch(
+            "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+            return_value=mock_flow,
+        ),
+        patch("builtins.open", mock_open()),
+    ):
         creds = google_sync._get_oauth_credentials("credentials.json", "token.json")
         assert creds == mock_new_creds
 
@@ -303,14 +353,14 @@ def test_share_calendar_with_email_httperror():
 
 def test_delete_removed_events_httperror():
     mock_service = MagicMock()
-    existing_events = [
-        {"id": "ev1", "iCalUID": "trakt-movie-1", "summary": "Movie 1"}
-    ]
+    existing_events = [{"id": "ev1", "iCalUID": "trakt-movie-1", "summary": "Movie 1"}]
     resp = MagicMock(status=400, reason="Error")
     mock_service.events().delete().execute.side_effect = HttpError(resp, b"Delete failed")
 
     with patch("time.sleep"):
-        deleted = google_sync._delete_removed_events(mock_service, "cal_id", current_uids=set(), existing_events=existing_events)
+        deleted = google_sync._delete_removed_events(
+            mock_service, "cal_id", current_uids=set(), existing_events=existing_events
+        )
     assert deleted == 0
 
 
@@ -342,17 +392,18 @@ def test_sync_ical_to_google_calendar_success():
             "summary": "Old Summary",  # Changed!
             "description": "Desc",
             "start": {"dateTime": ev1.get("dtstart").dt.isoformat()},
-            "end": {"dateTime": ev1.get("dtend").dt.isoformat()}
+            "end": {"dateTime": ev1.get("dtend").dt.isoformat()},
         }
     ]
-    with patch("google_sync._fetch_all_google_events", return_value=existing_events), \
-         patch("google_sync._delete_removed_events", return_value=0), \
-         patch("google_sync._upsert_single_event", side_effect=[True, False]) as mock_upsert, \
-         patch("time.sleep"):
+    with (
+        patch("google_sync._fetch_all_google_events", return_value=existing_events),
+        patch("google_sync._delete_removed_events", return_value=0),
+        patch("google_sync._upsert_single_event", side_effect=[True, False]) as mock_upsert,
+        patch("time.sleep"),
+    ):
         google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
         # ev1 is updated (changed), ev2 is inserted
         assert mock_upsert.call_count == 2
-
 
 
 def test_sync_ical_to_google_calendar_skip_unchanged():
@@ -373,13 +424,15 @@ def test_sync_ical_to_google_calendar_skip_unchanged():
             "summary": "Timed Event",
             "description": "Desc",
             "start": {"dateTime": ev1.get("dtstart").dt.isoformat()},
-            "end": {"dateTime": ev1.get("dtend").dt.isoformat()}
+            "end": {"dateTime": ev1.get("dtend").dt.isoformat()},
         }
     ]
-    with patch("google_sync._fetch_all_google_events", return_value=existing_events), \
-         patch("google_sync._delete_removed_events", return_value=0), \
-         patch("google_sync._upsert_single_event") as mock_upsert, \
-         patch("time.sleep"):
+    with (
+        patch("google_sync._fetch_all_google_events", return_value=existing_events),
+        patch("google_sync._delete_removed_events", return_value=0),
+        patch("google_sync._upsert_single_event") as mock_upsert,
+        patch("time.sleep"),
+    ):
         google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
         # Unchanged event was skipped completely
         mock_upsert.assert_not_called()
@@ -398,14 +451,10 @@ def test_sync_ical_to_google_calendar_httperror():
     resp = MagicMock(status=500, reason="Server Error")
     http_err = HttpError(resp, b"Sync error")
 
-    with patch("google_sync._fetch_all_google_events", return_value=[]), \
-         patch("google_sync._delete_removed_events", return_value=0), \
-         patch("google_sync._upsert_single_event", side_effect=http_err), \
-         patch("time.sleep"):
+    with (
+        patch("google_sync._fetch_all_google_events", return_value=[]),
+        patch("google_sync._delete_removed_events", return_value=0),
+        patch("google_sync._upsert_single_event", side_effect=http_err),
+        patch("time.sleep"),
+    ):
         google_sync.sync_ical_to_google_calendar(mock_service, "cal_id", cal)
-
-
-
-
-
-
