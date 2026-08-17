@@ -21,16 +21,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Python 3.12.3
-        uses: actions/setup-python@v5.4.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12.3'
           cache: 'pip'
 
       - name: Restore / Save Trakt Show Cache
-        uses: actions/cache@v4.2.2
+        uses: actions/cache@v6.1.0
         with:
           path: .show_cache.json
           key: trakt-show-cache-${{ runner.os }}-${{ github.run_id }}
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload iCal Files as Artifacts
         if: success()
-        uses: actions/upload-artifact@v4.6.1
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ical-files
           path: '*.ics'
