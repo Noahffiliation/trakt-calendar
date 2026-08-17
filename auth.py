@@ -5,7 +5,7 @@ and retrieve an OAuth Access Token for private watchlists.
 
 import os
 import sys
-from typing import Optional
+
 import requests
 from dotenv import load_dotenv
 
@@ -16,7 +16,7 @@ CONTENT_TYPE_JSON = "application/json"
 JSON_HEADERS = {"Content-Type": CONTENT_TYPE_JSON}
 
 
-def refresh_oauth_token(client_id: str, client_secret: str, refresh_token: str) -> Optional[dict]:
+def refresh_oauth_token(client_id: str, client_secret: str, refresh_token: str) -> dict | None:
     """Exchanges a refresh token for a new access token and refresh token via Trakt API."""
     response = requests.post(
         f"{TRAKT_API_URL}/oauth/token",

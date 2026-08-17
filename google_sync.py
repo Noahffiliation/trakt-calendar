@@ -2,11 +2,10 @@
 Google Calendar API Sync module using Service Account or OAuth Credentials.
 """
 
-import os.path
 import logging
+import os.path
 import time
-from typing import Any, Dict, List, Optional
-from icalendar import Calendar, Event
+from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
@@ -14,6 +13,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from icalendar import Calendar
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def get_google_calendar_service(
     return build('calendar', 'v3', credentials=creds)
 
 
-def share_calendar_with_email(service, calendar_id: str, share_email: Optional[str] = None):
+def share_calendar_with_email(service, calendar_id: str, share_email: str | None = None):
     """Share a Google Calendar with a user email address via ACL without sending notification emails."""
     email = share_email or os.getenv("GOOGLE_SHARE_EMAIL") or os.getenv("GOOGLE_CALENDAR_SHARE_EMAIL")
     if not email:
@@ -101,7 +101,7 @@ def share_calendar_with_email(service, calendar_id: str, share_email: Optional[s
             logger.warning(f"Could not share calendar with '{email}': {error}")
 
 
-def get_or_create_calendar(service, calendar_name: str, share_email: Optional[str] = None) -> str:
+def get_or_create_calendar(service, calendar_name: str, share_email: str | None = None) -> str:
     """Retrieve existing Google Calendar ID by name or create a new dedicated calendar."""
     page_token = None
     while True:
@@ -128,7 +128,7 @@ def get_or_create_calendar(service, calendar_name: str, share_email: Optional[st
     return cal_id
 
 
-def _event_has_changed(existing_event: Dict[str, Any], new_body: Dict[str, Any]) -> bool:
+def _event_has_changed(existing_event: dict[str, Any], new_body: dict[str, Any]) -> bool:
     """Check if meaningful event attributes (summary, description, start, end) have changed."""
     if existing_event.get('summary') != new_body.get('summary'):
         return True
@@ -142,17 +142,14 @@ def _event_has_changed(existing_event: Dict[str, Any], new_body: Dict[str, Any])
 
     existing_end = existing_event.get('end', {})
     new_end = new_body.get('end', {})
-    if existing_end.get('date') != new_end.get('date') or existing_end.get('dateTime') != new_end.get('dateTime'):
-        return True
-
-    return False
+    return existing_end.get('date') != new_end.get('date') or existing_end.get('dateTime') != new_end.get('dateTime')
 
 
 def _upsert_single_event(
     service: Any,
     calendar_id: str,
-    event_body: Dict[str, Any],
-    existing_event: Optional[Dict[str, Any]] = None
+    event_body: dict[str, Any],
+    existing_event: dict[str, Any] | None = None
 ) -> bool:
     """
     Inserts or patches an event in Google Calendar, returning True if updated, False if created.
@@ -192,7 +189,7 @@ def _upsert_single_event(
         raise
 
 
-def _fetch_all_google_events(service, calendar_id: str) -> List[Dict[str, Any]]:
+def _fetch_all_google_events(service, calendar_id: str) -> list[dict[str, Any]]:
     """Fetch all existing events from a Google Calendar with pagination."""
     all_events = []
     page_token = None
@@ -210,7 +207,7 @@ def _fetch_all_google_events(service, calendar_id: str) -> List[Dict[str, Any]]:
     return all_events
 
 
-def _delete_removed_events(service, calendar_id: str, current_uids: set, existing_events: List[Dict[str, Any]]) -> int:
+def _delete_removed_events(service, calendar_id: str, current_uids: set, existing_events: list[dict[str, Any]]) -> int:
     """Delete events from Google Calendar that are no longer present in the current sync set."""
     deleted_count = 0
     for g_event in existing_events:

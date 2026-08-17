@@ -2,35 +2,33 @@
 iCalendar (.ics) Builder for Trakt Watchlist Movies and TV Shows.
 """
 
-from datetime import datetime, date, timedelta, timezone
-from typing import Any, Dict, List, Optional
 import logging
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+
 from dateutil import parser
-from icalendar import Calendar, Event, Alarm
+from icalendar import Alarm, Calendar, Event
 
 logger = logging.getLogger(__name__)
 
 
-def parse_datetime(dt_str: Optional[str]) -> Optional[datetime]:
+def parse_datetime(dt_str: str | None) -> datetime | None:
     """Parse an ISO datetime or date string into a timezone-aware UTC datetime or None."""
     if not dt_str:
         return None
     try:
         dt = parser.isoparse(dt_str)
         if isinstance(dt, datetime):
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            else:
-                dt = dt.astimezone(timezone.utc)
-            return dt
+            return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
         elif isinstance(dt, date):
-            return datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+            return datetime(dt.year, dt.month, dt.day, tzinfo=UTC)
+        return None
     except Exception as e:
         logger.warning(f"Could not parse date string '{dt_str}': {e}")
         return None
 
 
-def parse_date(date_str: Optional[str]) -> Optional[date]:
+def parse_date(date_str: str | None) -> date | None:
     """Parse a date string (YYYY-MM-DD) or ISO string into a date object."""
     if not date_str:
         return None
@@ -40,14 +38,15 @@ def parse_date(date_str: Optional[str]) -> Optional[date]:
             return dt.date()
         elif isinstance(dt, date):
             return dt
+        return None
     except Exception as e:
         logger.warning(f"Could not parse date string '{date_str}': {e}")
         return None
 
 
 def build_movies_calendar(
-    movies: List[Dict[str, Any]],
-    start_cutoff: Optional[datetime] = None,
+    movies: list[dict[str, Any]],
+    start_cutoff: datetime | None = None,
     calendar_name: str = "Trakt Movies"
 ) -> Calendar:
     """Build an iCalendar containing only movie release events."""
@@ -55,9 +54,9 @@ def build_movies_calendar(
 
 
 def build_shows_calendar(
-    episodes: List[Dict[str, Any]],
-    shows_premieres: Optional[List[Dict[str, Any]]] = None,
-    start_cutoff: Optional[datetime] = None,
+    episodes: list[dict[str, Any]],
+    shows_premieres: list[dict[str, Any]] | None = None,
+    start_cutoff: datetime | None = None,
     calendar_name: str = "Trakt Shows"
 ) -> Calendar:
     """Build an iCalendar containing only TV show episode events."""
@@ -67,7 +66,7 @@ def build_shows_calendar(
 DEFAULT_NO_OVERVIEW = "No overview available."
 
 
-def _create_movie_event(item: Dict[str, Any], start_cutoff: Optional[datetime]) -> Optional[Event]:
+def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
     movie = item.get("movie", item)
     released_str = movie.get("released")
     if not released_str:
@@ -97,7 +96,7 @@ def _create_movie_event(item: Dict[str, Any], start_cutoff: Optional[datetime]) 
 
     event.add('description', "\n".join(desc_parts))
     event.add('uid', f"trakt-movie-{trakt_id}@trakt-calendar")
-    event.add('dtstamp', datetime.now(timezone.utc))
+    event.add('dtstamp', datetime.now(UTC))
 
     # Add notifications: Day before release at 9:00 AM & Day of release at 9:00 AM
     alarm_day_before = Alarm()
@@ -128,7 +127,7 @@ def _safe_runtime(val: Any, default: int) -> int:
     return default
 
 
-def _create_episode_event(ep_info: Dict[str, Any], start_cutoff: Optional[datetime]) -> Optional[Event]:
+def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
     show = ep_info.get("show", {})
     episode = ep_info.get("episode", {})
 
@@ -145,7 +144,7 @@ def _create_episode_event(ep_info: Dict[str, Any], start_cutoff: Optional[dateti
     season_num = episode.get("season", 0)
     ep_num = episode.get("number", 0)
     ep_title = episode.get("title") or f"Episode {ep_num}"
-    
+
     summary = f"📺 {show_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
     event.add('summary', summary)
 
@@ -166,12 +165,12 @@ def _create_episode_event(ep_info: Dict[str, Any], start_cutoff: Optional[dateti
 
     event.add('description', "\n".join(desc_parts))
     event.add('uid', f"trakt-ep-{trakt_id}-s{season_num}e{ep_num}@trakt-calendar")
-    event.add('dtstamp', datetime.now(timezone.utc))
+    event.add('dtstamp', datetime.now(UTC))
 
     return event
 
 
-def _create_premiere_event(show_item: Dict[str, Any], start_cutoff: Optional[datetime]) -> Optional[Event]:
+def _create_premiere_event(show_item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
     show = show_item.get("show", show_item)
     first_aired_str = show.get("first_aired")
     if not first_aired_str:
@@ -197,19 +196,19 @@ def _create_premiere_event(show_item: Dict[str, Any], start_cutoff: Optional[dat
     desc_parts = [overview]
     if slug:
         desc_parts.append(f"\nTrakt: https://app.trakt.tv/shows/{slug}")
-    
+
     event.add('description', "\n".join(desc_parts))
     event.add('uid', f"trakt-show-{trakt_id}-premiere@trakt-calendar")
-    event.add('dtstamp', datetime.now(timezone.utc))
+    event.add('dtstamp', datetime.now(UTC))
 
     return event
 
 
 def build_calendar(
-    movies: List[Dict[str, Any]],
-    episodes: List[Dict[str, Any]],
-    shows_premieres: Optional[List[Dict[str, Any]]] = None,
-    start_cutoff: Optional[datetime] = None,
+    movies: list[dict[str, Any]],
+    episodes: list[dict[str, Any]],
+    shows_premieres: list[dict[str, Any]] | None = None,
+    start_cutoff: datetime | None = None,
     calendar_name: str = "Trakt Watchlist"
 ) -> Calendar:
     """

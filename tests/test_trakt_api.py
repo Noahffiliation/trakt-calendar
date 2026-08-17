@@ -2,12 +2,12 @@
 Unit tests for TraktAPI Client.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
-from trakt_api import TraktClient, TraktAPIError
-
-
 import requests
+
+from trakt_api import TraktAPIError, TraktClient
 
 
 def test_trakt_client_init_requires_client_id():
@@ -137,7 +137,7 @@ def test_auto_refresh_on_401(mock_get, mock_post):
 def test_corrupted_cache_fallback(tmp_path):
     corrupted_file = tmp_path / "corrupted_cache.json"
     corrupted_file.write_text("{invalid json content", encoding="utf-8")
-    
+
     client = TraktClient(client_id="test_id", cache_file=str(corrupted_file))
     assert client._show_cache == {}
 
@@ -147,7 +147,7 @@ def test_atomic_save_cache(tmp_path):
     client = TraktClient(client_id="test_id", cache_file=str(cache_file))
     client._show_cache = {"123": {"timestamp": 123456}}
     client._save_cache()
-    
+
     assert cache_file.exists()
     assert "123" in cache_file.read_text(encoding="utf-8")
 
@@ -293,7 +293,7 @@ def test_try_refresh_token_edge_cases():
 
 def test_save_cache_exception(tmp_path):
     client = TraktClient(client_id="test_id", cache_file=str(tmp_path / "cache.json"))
-    with patch("builtins.open", side_effect=IOError("Disk write error")):
+    with patch("builtins.open", side_effect=OSError("Disk write error")):
         client._save_cache()
 
 
