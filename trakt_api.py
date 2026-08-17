@@ -23,6 +23,7 @@ REFRESHED_TOKENS_FILE = ".trakt_refreshed_tokens.json"
 
 class TraktAPIError(Exception):
     """Custom exception for Trakt API errors."""
+
     pass
 
 
@@ -54,7 +55,7 @@ def _make_http_request(
     url: str,
     headers: dict,
     params: dict | None,
-    session: requests.Session | None = None
+    session: requests.Session | None = None,
 ) -> requests.Response:
     requester = session if session is not None else requests
     if method.upper() == "GET":
@@ -79,7 +80,7 @@ class TraktClient:
         base_url: str = TRAKT_API_URL,
         cache_file: str = CACHE_FILE,
         refreshed_tokens_file: str = REFRESHED_TOKENS_FILE,
-        session: requests.Session | None = None
+        session: requests.Session | None = None,
     ):
         if not client_id:
             raise ValueError("Trakt Client ID is required.")
@@ -119,7 +120,9 @@ class TraktClient:
             with open(self.refreshed_tokens_file, "w", encoding="utf-8") as f:
                 json.dump(token_data, f)
         except Exception as e:
-            logger.warning(f"Could not save refreshed tokens to '{self.refreshed_tokens_file}': {e}")
+            logger.warning(
+                f"Could not save refreshed tokens to '{self.refreshed_tokens_file}': {e}"
+            )
 
         github_output = os.getenv("GITHUB_OUTPUT")
         if github_output and os.path.exists(github_output):
@@ -136,7 +139,9 @@ class TraktClient:
         if not self.client_secret or not self.refresh_token:
             return False
 
-        logger.info("Encountered 401 Unauthorized. Attempting automatic Trakt OAuth token refresh...")
+        logger.info(
+            "Encountered 401 Unauthorized. Attempting automatic Trakt OAuth token refresh..."
+        )
         try:
             requester = self.session if self.session is not None else requests
             response = requester.post(
@@ -146,10 +151,10 @@ class TraktClient:
                     "client_id": self.client_id,
                     "client_secret": self.client_secret,
                     "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
-                    "grant_type": "refresh_token"
+                    "grant_type": "refresh_token",
                 },
                 headers={"Content-Type": "application/json"},
-                timeout=30
+                timeout=30,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -159,7 +164,9 @@ class TraktClient:
                 self._save_refreshed_tokens()
                 return True
             else:
-                logger.warning(f"Automatic token refresh failed ({response.status_code}): {response.text}")
+                logger.warning(
+                    f"Automatic token refresh failed ({response.status_code}): {response.text}"
+                )
                 return False
         except Exception as e:
             logger.warning(f"Error during automatic token refresh: {e}")
@@ -184,11 +191,7 @@ class TraktClient:
             logger.warning(f"Could not save cache file '{self.cache_file}': {e}")
 
     def _request_with_retry(
-        self,
-        method: str,
-        url: str,
-        params: dict[str, Any] | None = None,
-        max_retries: int = 5
+        self, method: str, url: str, params: dict[str, Any] | None = None, max_retries: int = 5
     ) -> requests.Response:
         """Execute HTTP request with automatic retry logic for 401 auth refresh, rate limits (429) & Cloudflare pacing."""
         refreshed_attempted = False
@@ -204,7 +207,9 @@ class TraktClient:
 
             if _is_rate_limited(response):
                 wait_sec = _get_retry_wait_sec(response, attempt)
-                logger.warning(f"Rate limited by Trakt API (Status {response.status_code}). Waiting {wait_sec}s before retry {attempt}/{max_retries}...")
+                logger.warning(
+                    f"Rate limited by Trakt API (Status {response.status_code}). Waiting {wait_sec}s before retry {attempt}/{max_retries}..."
+                )
                 time.sleep(wait_sec)
                 continue
 
@@ -219,14 +224,18 @@ class TraktClient:
             return f"{self.base_url}/users/{self.username}/{user_path}"
         raise ValueError("Either access_token or username must be provided.")
 
-    def _fetch_paginated_list(self, endpoint: str, raise_on_error: bool = True) -> list[dict[str, Any]]:
+    def _fetch_paginated_list(
+        self, endpoint: str, raise_on_error: bool = True
+    ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         page = 1
         limit = 100
 
         while True:
             logger.info(f"Fetching page {page} from {endpoint}")
-            response = self._request_with_retry("GET", endpoint, params={"extended": "full", "page": page, "limit": limit})
+            response = self._request_with_retry(
+                "GET", endpoint, params={"extended": "full", "page": page, "limit": limit}
+            )
 
             if response.status_code != 200:
                 _handle_page_error(response, endpoint, raise_on_error)
@@ -267,7 +276,13 @@ class TraktClient:
             )
             return set()
 
-        sections = ["progress_watched", "progress_watched_reset", "calendar", "dropped", "recommendations"]
+        sections = [
+            "progress_watched",
+            "progress_watched_reset",
+            "calendar",
+            "dropped",
+            "recommendations",
+        ]
         hidden_ids: set[int] = set()
 
         for section in sections:
@@ -288,9 +303,7 @@ class TraktClient:
         return hidden_ids
 
     def get_show_seasons_with_episodes(
-        self,
-        show_id: str | int,
-        show_status: str | None = None
+        self, show_id: str | int, show_status: str | None = None
     ) -> list[dict[str, Any]]:
         """
         Fetch all seasons and episode air dates for a show with local caching and request pacing.
@@ -305,7 +318,9 @@ class TraktClient:
             cached_ts = cache_entry.get("timestamp", 0)
 
             # If show is ended/canceled and we cached it, or cached within CACHE_TTL_HOURS
-            if (show_status in ("ended", "canceled")) or (now_ts - cached_ts < CACHE_TTL_HOURS * 3600):
+            if (show_status in ("ended", "canceled")) or (
+                now_ts - cached_ts < CACHE_TTL_HOURS * 3600
+            ):
                 return cache_entry.get("seasons", [])
 
         # Pacing request: 0.1s delay to prevent Cloudflare rate-limiting on large libraries
@@ -327,10 +342,7 @@ class TraktClient:
         seasons_data = response.json()
 
         # Save to local cache
-        self._show_cache[str_id] = {
-            "timestamp": now_ts,
-            "seasons": seasons_data
-        }
+        self._show_cache[str_id] = {"timestamp": now_ts, "seasons": seasons_data}
         self._save_cache()
 
         return seasons_data

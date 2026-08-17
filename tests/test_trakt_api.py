@@ -71,9 +71,7 @@ def test_get_hidden_show_ids(mock_get):
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.json.return_value = [
-        {"show": {"ids": {"trakt": 555}}}
-    ]
+    mock_resp.json.return_value = [{"show": {"ids": {"trakt": 555}}}]
     mock_get.return_value = mock_resp
 
     hidden_ids = client.get_hidden_show_ids()
@@ -90,8 +88,13 @@ def test_get_show_seasons_with_episodes(mock_get):
         {
             "number": 1,
             "episodes": [
-                {"season": 1, "number": 1, "title": "Pilot", "first_aired": "2026-07-20T00:00:00.000Z"}
-            ]
+                {
+                    "season": 1,
+                    "number": 1,
+                    "title": "Pilot",
+                    "first_aired": "2026-07-20T00:00:00.000Z",
+                }
+            ],
         }
     ]
     mock_get.return_value = mock_resp
@@ -105,10 +108,7 @@ def test_get_show_seasons_with_episodes(mock_get):
 @patch.object(requests.Session, "get")
 def test_auto_refresh_on_401(mock_get, mock_post):
     client = TraktClient(
-        client_id="cid",
-        access_token="old_acc",
-        client_secret="csecret",
-        refresh_token="old_ref"
+        client_id="cid", access_token="old_acc", client_secret="csecret", refresh_token="old_ref"
     )
 
     mock_401 = MagicMock()
@@ -122,10 +122,7 @@ def test_auto_refresh_on_401(mock_get, mock_post):
 
     mock_token_resp = MagicMock()
     mock_token_resp.status_code = 200
-    mock_token_resp.json.return_value = {
-        "access_token": "new_acc",
-        "refresh_token": "new_ref"
-    }
+    mock_token_resp.json.return_value = {"access_token": "new_acc", "refresh_token": "new_ref"}
     mock_post.return_value = mock_token_resp
 
     items = client.get_watchlist()
@@ -158,7 +155,7 @@ def test_save_refreshed_tokens_to_file(tmp_path):
         client_id="test_id",
         access_token="new_access_123",
         refresh_token="new_refresh_456",
-        refreshed_tokens_file=str(token_file)
+        refreshed_tokens_file=str(token_file),
     )
     client._save_refreshed_tokens()
 
@@ -177,7 +174,7 @@ def test_save_refreshed_tokens_github_output(tmp_path):
         client_id="test_id",
         access_token="tok_abc",
         refresh_token="ref_xyz",
-        refreshed_tokens_file=str(token_file)
+        refreshed_tokens_file=str(token_file),
     )
 
     with patch.dict("os.environ", {"GITHUB_OUTPUT": str(github_output_file)}):
@@ -196,7 +193,7 @@ def test_save_refreshed_tokens_noop_if_empty(tmp_path):
         client_id="test_id",
         access_token=None,
         refresh_token=None,
-        refreshed_tokens_file=str(token_file)
+        refreshed_tokens_file=str(token_file),
     )
     client._save_refreshed_tokens()
     assert not token_file.exists()
@@ -204,14 +201,20 @@ def test_save_refreshed_tokens_noop_if_empty(tmp_path):
 
 def test_is_last_page_helper():
     from trakt_api import _is_last_page
-    assert _is_last_page({"X-Pagination-Page-Count": "3"}, page=3, item_count=100, limit=100) is True
-    assert _is_last_page({"X-Pagination-Page-Count": "3"}, page=2, item_count=100, limit=100) is False
+
+    assert (
+        _is_last_page({"X-Pagination-Page-Count": "3"}, page=3, item_count=100, limit=100) is True
+    )
+    assert (
+        _is_last_page({"X-Pagination-Page-Count": "3"}, page=2, item_count=100, limit=100) is False
+    )
     assert _is_last_page({}, page=1, item_count=50, limit=100) is True
     assert _is_last_page({}, page=1, item_count=100, limit=100) is False
 
 
 def test_is_rate_limited_helper():
     from trakt_api import _is_rate_limited
+
     resp_429 = MagicMock(status_code=429)
     assert _is_rate_limited(resp_429) is True
 
@@ -230,6 +233,7 @@ def test_is_rate_limited_helper():
 
 def test_get_retry_wait_sec():
     from trakt_api import _get_retry_wait_sec
+
     resp_retry_after = MagicMock(headers={"Retry-After": "4"})
     assert _get_retry_wait_sec(resp_retry_after, attempt=1) == 5
 
@@ -239,18 +243,26 @@ def test_get_retry_wait_sec():
 
 def test_make_http_request_non_get():
     from trakt_api import _make_http_request
+
     mock_session = MagicMock()
-    _make_http_request("POST", "https://api.trakt.tv/test", headers={}, params=None, session=mock_session)
-    mock_session.request.assert_called_once_with("POST", "https://api.trakt.tv/test", headers={}, params=None, timeout=30)
+    _make_http_request(
+        "POST", "https://api.trakt.tv/test", headers={}, params=None, session=mock_session
+    )
+    mock_session.request.assert_called_once_with(
+        "POST", "https://api.trakt.tv/test", headers={}, params=None, timeout=30
+    )
 
     # Without session fallback
     with patch("requests.request") as mock_req:
-        _make_http_request("DELETE", "https://api.trakt.tv/del", headers={}, params=None, session=None)
+        _make_http_request(
+            "DELETE", "https://api.trakt.tv/del", headers={}, params=None, session=None
+        )
         mock_req.assert_called_once()
 
 
 def test_handle_page_error():
     from trakt_api import _handle_page_error
+
     resp = MagicMock(status_code=500, text="Internal Error")
     with pytest.raises(TraktAPIError):
         _handle_page_error(resp, "https://api.trakt.tv/ep", raise_on_error=True)
@@ -264,11 +276,13 @@ def test_save_refreshed_tokens_exceptions(tmp_path):
         client_id="test_id",
         access_token="tok_1",
         refresh_token="ref_1",
-        refreshed_tokens_file=str(tmp_path / "inaccessible" / "file.json")
+        refreshed_tokens_file=str(tmp_path / "inaccessible" / "file.json"),
     )
-    with patch("builtins.open", side_effect=PermissionError("Denied")), \
-         patch.dict("os.environ", {"GITHUB_OUTPUT": str(tmp_path / "gh_out.txt")}), \
-         patch("os.path.exists", return_value=True):
+    with (
+        patch("builtins.open", side_effect=PermissionError("Denied")),
+        patch.dict("os.environ", {"GITHUB_OUTPUT": str(tmp_path / "gh_out.txt")}),
+        patch("os.path.exists", return_value=True),
+    ):
         # Should catch exceptions and log warnings without crashing
         client._save_refreshed_tokens()
 
@@ -286,9 +300,10 @@ def test_try_refresh_token_edge_cases():
         assert client._try_refresh_token() is False
 
     # Exception during request
-    with patch.object(client.session, "post", side_effect=requests.RequestException("Connection error")):
+    with patch.object(
+        client.session, "post", side_effect=requests.RequestException("Connection error")
+    ):
         assert client._try_refresh_token() is False
-
 
 
 def test_save_cache_exception(tmp_path):
@@ -302,8 +317,10 @@ def test_request_with_retry_rate_limit():
     mock_429 = MagicMock(status_code=429, headers={"Retry-After": "1"})
     mock_200 = MagicMock(status_code=200)
 
-    with patch.object(client.session, "get", side_effect=[mock_429, mock_200]), \
-         patch("time.sleep") as mock_sleep:
+    with (
+        patch.object(client.session, "get", side_effect=[mock_429, mock_200]),
+        patch("time.sleep") as mock_sleep,
+    ):
         resp = client._request_with_retry("GET", "https://api.trakt.tv/test", max_retries=2)
         assert resp.status_code == 200
         mock_sleep.assert_called_once_with(2)
@@ -344,15 +361,13 @@ def test_get_show_seasons_with_episodes_caching_and_errors(tmp_path):
 
     # Pre-populate cache
     import time
+
     client._show_cache = {
-        "100": {
-            "timestamp": time.time(),
-            "seasons": [{"number": 1, "episodes": []}]
-        },
+        "100": {"timestamp": time.time(), "seasons": [{"number": 1, "episodes": []}]},
         "200": {
             "timestamp": time.time() - (25 * 3600),  # Expired for active show
-            "seasons": [{"number": 1, "episodes": []}]
-        }
+            "seasons": [{"number": 1, "episodes": []}],
+        },
     }
 
     # 1. Cache hit within TTL
@@ -368,6 +383,7 @@ def test_get_show_seasons_with_episodes_caching_and_errors(tmp_path):
     with patch.object(client.session, "get", return_value=mock_404), patch("time.sleep"):
         seasons_404 = client.get_show_seasons_with_episodes(999, show_status="returning series")
         assert seasons_404 == []
+
 
 def test_request_with_retry_exhausted_retries():
     client = TraktClient(client_id="test_id")
@@ -388,8 +404,11 @@ def test_fetch_paginated_list_error_no_raise():
 def test_get_show_seasons_with_episodes_error():
     client = TraktClient(client_id="test_id", username="johndoe")
     mock_500 = MagicMock(status_code=500, text="Server Error")
-    with patch.object(client.session, "get", return_value=mock_500), patch("time.sleep"), \
-         pytest.raises(TraktAPIError):
+    with (
+        patch.object(client.session, "get", return_value=mock_500),
+        patch("time.sleep"),
+        pytest.raises(TraktAPIError),
+    ):
         client.get_show_seasons_with_episodes(888, show_status="returning series")
 
 
@@ -405,9 +424,3 @@ def test_get_show_seasons_with_episodes_live_fetch(tmp_path):
         assert len(seasons) == 1
         assert seasons[0]["episodes"][0]["title"] == "Fresh Ep"
         assert "12345" in client._show_cache
-
-
-
-
-
-

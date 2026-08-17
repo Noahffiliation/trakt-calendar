@@ -47,20 +47,32 @@ def parse_date(date_str: str | None) -> date | None:
 def build_movies_calendar(
     movies: list[dict[str, Any]],
     start_cutoff: datetime | None = None,
-    calendar_name: str = "Trakt Movies"
+    calendar_name: str = "Trakt Movies",
 ) -> Calendar:
     """Build an iCalendar containing only movie release events."""
-    return build_calendar(movies=movies, episodes=[], shows_premieres=[], start_cutoff=start_cutoff, calendar_name=calendar_name)
+    return build_calendar(
+        movies=movies,
+        episodes=[],
+        shows_premieres=[],
+        start_cutoff=start_cutoff,
+        calendar_name=calendar_name,
+    )
 
 
 def build_shows_calendar(
     episodes: list[dict[str, Any]],
     shows_premieres: list[dict[str, Any]] | None = None,
     start_cutoff: datetime | None = None,
-    calendar_name: str = "Trakt Shows"
+    calendar_name: str = "Trakt Shows",
 ) -> Calendar:
     """Build an iCalendar containing only TV show episode events."""
-    return build_calendar(movies=[], episodes=episodes, shows_premieres=shows_premieres, start_cutoff=start_cutoff, calendar_name=calendar_name)
+    return build_calendar(
+        movies=[],
+        episodes=episodes,
+        shows_premieres=shows_premieres,
+        start_cutoff=start_cutoff,
+        calendar_name=calendar_name,
+    )
 
 
 DEFAULT_NO_OVERVIEW = "No overview available."
@@ -80,11 +92,11 @@ def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> 
     title = movie.get("title", "Untitled Movie")
     year = movie.get("year")
     summary_title = f"🎬 {title} ({year})" if year else f"🎬 {title}"
-    event.add('summary', summary_title)
+    event.add("summary", summary_title)
 
     release_d = parse_date(released_str) or release_dt.date()
-    event.add('dtstart', release_d)
-    event.add('dtend', release_d + timedelta(days=1))
+    event.add("dtstart", release_d)
+    event.add("dtend", release_d + timedelta(days=1))
 
     trakt_id = movie.get("ids", {}).get("trakt", "unknown")
     slug = movie.get("ids", {}).get("slug", "")
@@ -94,20 +106,20 @@ def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> 
     if slug:
         desc_parts.append(f"\nTrakt: https://app.trakt.tv/movies/{slug}")
 
-    event.add('description', "\n".join(desc_parts))
-    event.add('uid', f"trakt-movie-{trakt_id}@trakt-calendar")
-    event.add('dtstamp', datetime.now(UTC))
+    event.add("description", "\n".join(desc_parts))
+    event.add("uid", f"trakt-movie-{trakt_id}@trakt-calendar")
+    event.add("dtstamp", datetime.now(UTC))
 
     # Add notifications: Day before release at 9:00 AM & Day of release at 9:00 AM
     alarm_day_before = Alarm()
-    alarm_day_before.add('action', 'DISPLAY')
-    alarm_day_before.add('description', f"Movie releasing tomorrow: {title}")
-    alarm_day_before.add('trigger', timedelta(hours=-15))
+    alarm_day_before.add("action", "DISPLAY")
+    alarm_day_before.add("description", f"Movie releasing tomorrow: {title}")
+    alarm_day_before.add("trigger", timedelta(hours=-15))
 
     alarm_same_day = Alarm()
-    alarm_same_day.add('action', 'DISPLAY')
-    alarm_same_day.add('description', f"Movie releasing today: {title}")
-    alarm_same_day.add('trigger', timedelta(hours=9))
+    alarm_same_day.add("action", "DISPLAY")
+    alarm_same_day.add("description", f"Movie releasing today: {title}")
+    alarm_same_day.add("trigger", timedelta(hours=9))
 
     event.add_component(alarm_day_before)
     event.add_component(alarm_same_day)
@@ -146,12 +158,12 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
     ep_title = episode.get("title") or f"Episode {ep_num}"
 
     summary = f"📺 {show_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
-    event.add('summary', summary)
+    event.add("summary", summary)
 
-    event.add('dtstart', air_dt)
+    event.add("dtstart", air_dt)
     raw_runtime = episode.get("runtime") or show.get("runtime")
     runtime = _safe_runtime(raw_runtime, default=45)
-    event.add('dtend', air_dt + timedelta(minutes=runtime))
+    event.add("dtend", air_dt + timedelta(minutes=runtime))
 
     trakt_id = show.get("ids", {}).get("trakt", "unknown")
     slug = show.get("ids", {}).get("slug", "")
@@ -159,18 +171,22 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
 
     desc_parts = [f"Season {season_num}, Episode {ep_num}: {ep_title}", f"\n{ep_overview}"]
     if slug and season_num and ep_num:
-        desc_parts.append(f"\nTrakt: https://app.trakt.tv/shows/{slug}/seasons/{season_num}/episodes/{ep_num}")
+        desc_parts.append(
+            f"\nTrakt: https://app.trakt.tv/shows/{slug}/seasons/{season_num}/episodes/{ep_num}"
+        )
     elif slug:
         desc_parts.append(f"\nTrakt: https://app.trakt.tv/shows/{slug}")
 
-    event.add('description', "\n".join(desc_parts))
-    event.add('uid', f"trakt-ep-{trakt_id}-s{season_num}e{ep_num}@trakt-calendar")
-    event.add('dtstamp', datetime.now(UTC))
+    event.add("description", "\n".join(desc_parts))
+    event.add("uid", f"trakt-ep-{trakt_id}-s{season_num}e{ep_num}@trakt-calendar")
+    event.add("dtstamp", datetime.now(UTC))
 
     return event
 
 
-def _create_premiere_event(show_item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
+def _create_premiere_event(
+    show_item: dict[str, Any], start_cutoff: datetime | None
+) -> Event | None:
     show = show_item.get("show", show_item)
     first_aired_str = show.get("first_aired")
     if not first_aired_str:
@@ -183,11 +199,11 @@ def _create_premiere_event(show_item: dict[str, Any], start_cutoff: datetime | N
     event = Event()
     show_title = show.get("title", "Unknown Show")
     summary = f"📺 {show_title} (Series Premiere)"
-    event.add('summary', summary)
+    event.add("summary", summary)
 
-    event.add('dtstart', air_dt)
+    event.add("dtstart", air_dt)
     runtime = _safe_runtime(show.get("runtime"), default=60)
-    event.add('dtend', air_dt + timedelta(minutes=runtime))
+    event.add("dtend", air_dt + timedelta(minutes=runtime))
 
     trakt_id = show.get("ids", {}).get("trakt", "unknown")
     slug = show.get("ids", {}).get("slug", "")
@@ -197,9 +213,9 @@ def _create_premiere_event(show_item: dict[str, Any], start_cutoff: datetime | N
     if slug:
         desc_parts.append(f"\nTrakt: https://app.trakt.tv/shows/{slug}")
 
-    event.add('description', "\n".join(desc_parts))
-    event.add('uid', f"trakt-show-{trakt_id}-premiere@trakt-calendar")
-    event.add('dtstamp', datetime.now(UTC))
+    event.add("description", "\n".join(desc_parts))
+    event.add("uid", f"trakt-show-{trakt_id}-premiere@trakt-calendar")
+    event.add("dtstamp", datetime.now(UTC))
 
     return event
 
@@ -209,17 +225,17 @@ def build_calendar(
     episodes: list[dict[str, Any]],
     shows_premieres: list[dict[str, Any]] | None = None,
     start_cutoff: datetime | None = None,
-    calendar_name: str = "Trakt Watchlist"
+    calendar_name: str = "Trakt Watchlist",
 ) -> Calendar:
     """
     Build an icalendar.Calendar object populated with VEVENT entries.
     """
     cal = Calendar()
-    cal.add('prodid', '-//Trakt Watchlist Calendar Generator//NONSGML v1.0//EN')
-    cal.add('version', '2.0')
-    cal.add('x-wr-calname', calendar_name)
-    cal.add('x-wr-timezone', 'UTC')
-    cal.add('calscale', 'GREGORIAN')
+    cal.add("prodid", "-//Trakt Watchlist Calendar Generator//NONSGML v1.0//EN")
+    cal.add("version", "2.0")
+    cal.add("x-wr-calname", calendar_name)
+    cal.add("x-wr-timezone", "UTC")
+    cal.add("calscale", "GREGORIAN")
 
     for item in movies:
         ev = _create_movie_event(item, start_cutoff)

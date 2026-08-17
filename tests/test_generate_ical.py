@@ -40,7 +40,6 @@ def test_validate_safe_path_traversal(tmp_path):
     assert "Path traversal security error" in str(exc_info2.value)
 
 
-
 def test_init_client_missing_id():
     args = MagicMock()
     args.client_id = None
@@ -72,7 +71,7 @@ def test_categorize_items():
     watchlist_items = [
         {"type": "movie", "movie": {"title": "Movie 1"}},
         {"type": "show", "show": {"title": "Show 1", "ids": {"trakt": 10}}},
-        {"type": "episode", "show": {"title": "Show 2"}, "episode": {"season": 1, "number": 1}}
+        {"type": "episode", "show": {"title": "Show 2"}, "episode": {"season": 1, "number": 1}},
     ]
 
     mock_client = MagicMock()
@@ -93,22 +92,21 @@ def test_categorize_items():
 def test_fetch_show_episodes():
     candidate_shows = [
         {"title": "Show A", "ids": {"trakt": 1}, "status": "returning series"},
-        {"title": "Show B", "ids": {"trakt": 2}, "status": "ended"}
+        {"title": "Show B", "ids": {"trakt": 2}, "status": "ended"},
     ]
-    direct_episodes = [
-        {"show": {"title": "Direct Show"}, "episode": {"season": 1, "number": 1}}
-    ]
+    direct_episodes = [{"show": {"title": "Direct Show"}, "episode": {"season": 1, "number": 1}}]
 
     mock_client = MagicMock()
     mock_client.get_show_seasons_with_episodes.side_effect = [
         [{"episodes": [{"season": 1, "number": 1}]}],
-        []
+        [],
     ]
 
-    episodes, premieres = generate_ical._fetch_show_episodes(mock_client, candidate_shows, direct_episodes)
+    episodes, premieres = generate_ical._fetch_show_episodes(
+        mock_client, candidate_shows, direct_episodes
+    )
     assert len(episodes) == 2
     assert len(premieres) == 1
-
 
 
 def test_sync_to_google():
@@ -116,9 +114,11 @@ def test_sync_to_google():
     mock_movies_cal = MagicMock()
     mock_shows_cal = MagicMock()
 
-    with patch("google_sync.get_google_calendar_service", return_value=mock_service), \
-         patch("google_sync.get_or_create_calendar", side_effect=["m_id", "s_id"]), \
-         patch("google_sync.sync_ical_to_google_calendar") as mock_sync:
+    with (
+        patch("google_sync.get_google_calendar_service", return_value=mock_service),
+        patch("google_sync.get_or_create_calendar", side_effect=["m_id", "s_id"]),
+        patch("google_sync.sync_ical_to_google_calendar") as mock_sync,
+    ):
         generate_ical._sync_to_google(mock_movies_cal, mock_shows_cal)
         assert mock_sync.call_count == 2
 
@@ -140,8 +140,10 @@ def test_main(tmp_path):
     ]
     mock_client.get_watched_shows.return_value = []
 
-    with patch("generate_ical.parse_args", return_value=mock_args), \
-         patch("generate_ical._init_client", return_value=mock_client):
+    with (
+        patch("generate_ical.parse_args", return_value=mock_args),
+        patch("generate_ical._init_client", return_value=mock_client),
+    ):
         generate_ical.main()
 
     assert (tmp_path / "movies.ics").exists()
@@ -150,7 +152,10 @@ def test_main(tmp_path):
 
 
 def test_parse_args():
-    with patch("sys.argv", ["generate_ical.py", "-c", "cid", "-t", "tok", "-v", "-g", "--no-watched", "-d", "45"]):
+    with patch(
+        "sys.argv",
+        ["generate_ical.py", "-c", "cid", "-t", "tok", "-v", "-g", "--no-watched", "-d", "45"],
+    ):
         args = generate_ical.parse_args()
         assert args.client_id == "cid"
         assert args.access_token == "tok"
@@ -168,11 +173,20 @@ def test_add_candidate_show_edge_cases():
     # Missing show ID
     assert generate_ical._add_candidate_show({}, hidden, processed, candidates) is False
     # Hidden show ID
-    assert generate_ical._add_candidate_show({"ids": {"trakt": 10}}, hidden, processed, candidates) is False
+    assert (
+        generate_ical._add_candidate_show({"ids": {"trakt": 10}}, hidden, processed, candidates)
+        is False
+    )
     # Already processed show ID
-    assert generate_ical._add_candidate_show({"ids": {"trakt": 20}}, hidden, processed, candidates) is False
+    assert (
+        generate_ical._add_candidate_show({"ids": {"trakt": 20}}, hidden, processed, candidates)
+        is False
+    )
     # Valid new show ID
-    assert generate_ical._add_candidate_show({"ids": {"trakt": 30}}, hidden, processed, candidates) is True
+    assert (
+        generate_ical._add_candidate_show({"ids": {"trakt": 30}}, hidden, processed, candidates)
+        is True
+    )
     assert len(candidates) == 1
 
 
@@ -182,10 +196,12 @@ def test_fetch_show_episodes_error_and_missing_id():
 
     candidate_shows = [
         {"ids": {}},  # Missing trakt id
-        {"ids": {"trakt": 99}, "title": "Failing Show"}
+        {"ids": {"trakt": 99}, "title": "Failing Show"},
     ]
 
-    episodes, premieres = generate_ical._fetch_show_episodes(mock_client, candidate_shows, direct_episodes=[])
+    episodes, premieres = generate_ical._fetch_show_episodes(
+        mock_client, candidate_shows, direct_episodes=[]
+    )
     assert episodes == []
     assert premieres == []
 
@@ -210,9 +226,11 @@ def test_main_verbose_and_sync_google(tmp_path):
     mock_client.get_hidden_show_ids.return_value = set()
     mock_client.get_watchlist.return_value = []
 
-    with patch("generate_ical.parse_args", return_value=mock_args), \
-         patch("generate_ical._init_client", return_value=mock_client), \
-         patch("generate_ical._sync_to_google") as mock_sync:
+    with (
+        patch("generate_ical.parse_args", return_value=mock_args),
+        patch("generate_ical._init_client", return_value=mock_client),
+        patch("generate_ical._sync_to_google") as mock_sync,
+    ):
         generate_ical.main()
         mock_sync.assert_called_once()
 
@@ -225,27 +243,39 @@ def test_main_watchlist_trakt_api_error():
     mock_client.get_hidden_show_ids.return_value = set()
     mock_client.get_watchlist.side_effect = TraktAPIError("401 error")
 
-    with patch("generate_ical.parse_args", return_value=mock_args), \
-         patch("generate_ical._init_client", return_value=mock_client), \
-         pytest.raises(SystemExit) as exc_info:
+    with (
+        patch("generate_ical.parse_args", return_value=mock_args),
+        patch("generate_ical._init_client", return_value=mock_client),
+        pytest.raises(SystemExit) as exc_info,
+    ):
         generate_ical.main()
     assert exc_info.value.code == 1
 
 
 def test_generate_ical_dunder_main(tmp_path):
     import runpy
-    with patch.dict("os.environ", {"SYNC_GOOGLE": "false"}), \
-         patch("sys.argv", [
-             "generate_ical.py",
-             "-c", "test_id",
-             "-t", "test_token",
-             "-mo", str(tmp_path / "m.ics"),
-             "-so", str(tmp_path / "s.ics"),
-             "-o", str(tmp_path / "c.ics")
-         ]), patch("trakt_api.TraktClient.get_watchlist", return_value=[]), \
-            patch("trakt_api.TraktClient.get_hidden_show_ids", return_value=set()), \
-            patch("trakt_api.TraktClient.get_watched_shows", return_value=[]):
+
+    with (
+        patch.dict("os.environ", {"SYNC_GOOGLE": "false"}),
+        patch(
+            "sys.argv",
+            [
+                "generate_ical.py",
+                "-c",
+                "test_id",
+                "-t",
+                "test_token",
+                "-mo",
+                str(tmp_path / "m.ics"),
+                "-so",
+                str(tmp_path / "s.ics"),
+                "-o",
+                str(tmp_path / "c.ics"),
+            ],
+        ),
+        patch("trakt_api.TraktClient.get_watchlist", return_value=[]),
+        patch("trakt_api.TraktClient.get_hidden_show_ids", return_value=set()),
+        patch("trakt_api.TraktClient.get_watched_shows", return_value=[]),
+    ):
         runpy.run_path("generate_ical.py", run_name="__main__")
     assert (tmp_path / "m.ics").exists()
-
-
