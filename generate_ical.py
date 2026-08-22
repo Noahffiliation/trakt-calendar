@@ -82,6 +82,16 @@ def parse_args():
         default=os.getenv("SYNC_GOOGLE", "").lower() in ("true", "1", "yes"),
         help="Directly sync events to Google Calendar using Google Calendar API (requires credentials.json or service_account.json)",
     )
+    parser.add_argument(
+        "--movies-calendar-id",
+        default=os.getenv("GOOGLE_CALENDAR_ID_MOVIES") or os.getenv("GOOGLE_MOVIES_CALENDAR_ID"),
+        help="Google Calendar ID for Trakt Movies (optional, overrides default calendar search/create)",
+    )
+    parser.add_argument(
+        "--shows-calendar-id",
+        default=os.getenv("GOOGLE_CALENDAR_ID_SHOWS") or os.getenv("GOOGLE_SHOWS_CALENDAR_ID"),
+        help="Google Calendar ID for Trakt TV Shows (optional, overrides default calendar search/create)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose debug logging")
     return parser.parse_args()
 
@@ -231,7 +241,12 @@ def _fetch_show_episodes(client: TraktClient, candidate_shows: list, direct_epis
     return episodes_to_include, standalone_premieres
 
 
-def _sync_to_google(movies_cal, shows_cal):
+def _sync_to_google(
+    movies_cal,
+    shows_cal,
+    movies_cal_id_override: str | None = None,
+    shows_cal_id_override: str | None = None,
+):
     logger.info("Initializing Direct Google Calendar API Sync...")
     try:
         from google_sync import (
@@ -242,10 +257,14 @@ def _sync_to_google(movies_cal, shows_cal):
 
         service = get_google_calendar_service()
 
-        movies_cal_id = get_or_create_calendar(service, "Trakt Movies")
+        movies_cal_id = get_or_create_calendar(
+            service, "Trakt Movies", calendar_id=movies_cal_id_override
+        )
         sync_ical_to_google_calendar(service, movies_cal_id, movies_cal)
 
-        shows_cal_id = get_or_create_calendar(service, "Trakt TV Shows")
+        shows_cal_id = get_or_create_calendar(
+            service, "Trakt TV Shows", calendar_id=shows_cal_id_override
+        )
         sync_ical_to_google_calendar(service, shows_cal_id, shows_cal)
 
         logger.info("✅ Direct Google Calendar API sync complete!")
@@ -310,7 +329,12 @@ def main():
 
     # Optional Direct Google Calendar Sync
     if args.sync_google:
-        _sync_to_google(movies_cal, shows_cal)
+        _sync_to_google(
+            movies_cal,
+            shows_cal,
+            movies_cal_id_override=args.movies_calendar_id,
+            shows_cal_id_override=args.shows_calendar_id,
+        )
 
     logger.info("Done generating all calendars!")
 

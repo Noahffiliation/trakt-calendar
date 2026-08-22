@@ -103,8 +103,32 @@ def share_calendar_with_email(service, calendar_id: str, share_email: str | None
             logger.warning(f"Could not share calendar with '{email}': {error}")
 
 
-def get_or_create_calendar(service, calendar_name: str, share_email: str | None = None) -> str:
-    """Retrieve existing Google Calendar ID by name or create a new dedicated calendar."""
+def get_or_create_calendar(
+    service,
+    calendar_name: str,
+    share_email: str | None = None,
+    calendar_id: str | None = None,
+) -> str:
+    """Retrieve existing Google Calendar ID by explicit ID, name, or create a new dedicated calendar."""
+    if calendar_id:
+        logger.info(
+            f"Using explicitly configured Google Calendar ID '{calendar_id}' for '{calendar_name}'"
+        )
+        share_calendar_with_email(service, calendar_id, share_email)
+        return calendar_id
+
+    # Check env vars for explicit calendar ID override
+    env_suffix = calendar_name.upper().replace(" ", "_")
+    env_id = os.getenv(f"GOOGLE_CALENDAR_ID_{env_suffix}") or os.getenv(
+        f"GOOGLE_{env_suffix}_CALENDAR_ID"
+    )
+    if env_id:
+        logger.info(
+            f"Found Google Calendar ID '{env_id}' for '{calendar_name}' from environment variable"
+        )
+        share_calendar_with_email(service, env_id, share_email)
+        return env_id
+
     page_token = None
     while True:
         calendar_list = service.calendarList().list(pageToken=page_token).execute()
@@ -128,7 +152,11 @@ def get_or_create_calendar(service, calendar_name: str, share_email: str | None 
 
 
 def _event_has_changed(existing_event: dict[str, Any], new_body: dict[str, Any]) -> bool:
-    """Check if meaningful event attributes (summary, description, start, end) have changed."""
+    """Check if meaningful event attributes (status, summary, description, start, end) have changed."""
+    existing_status = existing_event.get("status") or "confirmed"
+    new_status = new_body.get("status") or "confirmed"
+    if existing_status != new_status:
+        return True
     if existing_event.get("summary") != new_body.get("summary"):
         return True
     if (existing_event.get("description") or "") != (new_body.get("description") or ""):
@@ -156,21 +184,27 @@ def _upsert_single_event(
 ) -> bool:
     """
     Inserts or patches an event in Google Calendar, returning True if updated, False if created.
+    Ensures 'status': 'confirmed' so tombstoned/cancelled events are revived.
     Uses num_retries=5 for automatic exponential backoff on 403/429 rate limit errors.
     """
+    body_with_status = dict(event_body)
+    body_with_status.setdefault("status", "confirmed")
+
     if existing_event:
         event_id = existing_event["id"]
-        service.events().patch(calendarId=calendar_id, eventId=event_id, body=event_body).execute(
-            num_retries=5
-        )
+        service.events().patch(
+            calendarId=calendar_id, eventId=event_id, body=body_with_status
+        ).execute(num_retries=5)
         return True
 
     try:
-        service.events().insert(calendarId=calendar_id, body=event_body).execute(num_retries=5)
+        service.events().insert(calendarId=calendar_id, body=body_with_status).execute(
+            num_retries=5
+        )
         return False
     except HttpError as error:
         if "duplicate" in str(error).lower() or "already exists" in str(error).lower():
-            uid = event_body.get("iCalUID")
+            uid = body_with_status.get("iCalUID")
             logger.debug(
                 f"Event with UID '{uid}' already exists in calendar, attempting patch fallback..."
             )
@@ -182,20 +216,30 @@ def _upsert_single_event(
             )
             if existing_list:
                 service.events().patch(
-                    calendarId=calendar_id, eventId=existing_list[0]["id"], body=event_body
+                    calendarId=calendar_id,
+                    eventId=existing_list[0]["id"],
+                    body=body_with_status,
                 ).execute(num_retries=5)
                 return True
         raise
 
 
-def _fetch_all_google_events(service, calendar_id: str) -> list[dict[str, Any]]:
-    """Fetch all existing events from a Google Calendar with pagination."""
+def _fetch_all_google_events(
+    service, calendar_id: str, show_deleted: bool = True
+) -> list[dict[str, Any]]:
+    """Fetch all existing events (including deleted/tombstoned ones) from a Google Calendar with pagination."""
     all_events = []
     page_token = None
     while True:
         resp = (
             service.events()
-            .list(calendarId=calendar_id, pageToken=page_token, maxResults=2500, singleEvents=False)
+            .list(
+                calendarId=calendar_id,
+                pageToken=page_token,
+                maxResults=2500,
+                singleEvents=False,
+                showDeleted=show_deleted,
+            )
             .execute(num_retries=5)
         )
         all_events.extend(resp.get("items", []))
@@ -211,6 +255,8 @@ def _delete_removed_events(
     """Delete events from Google Calendar that are no longer present in the current sync set."""
     deleted_count = 0
     for g_event in existing_events:
+        if g_event.get("status") == "cancelled":
+            continue
         i_cal_uid = g_event.get("iCalUID", "")
         if i_cal_uid.startswith("trakt-") and i_cal_uid not in current_uids:
             event_id = g_event.get("id")
@@ -236,8 +282,8 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
     updated_count = 0
     created_count = 0
 
-    # 1. Fetch all existing events from Google Calendar to check for deletions & fast upsert lookup
-    existing_google_events = _fetch_all_google_events(service, calendar_id)
+    # 1. Fetch all existing events from Google Calendar (including deleted tombstones)
+    existing_google_events = _fetch_all_google_events(service, calendar_id, show_deleted=True)
     existing_events_by_uid = {
         g_ev.get("iCalUID"): g_ev for g_ev in existing_google_events if g_ev.get("iCalUID")
     }
@@ -266,6 +312,7 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
                 "iCalUID": uid,
                 "start": start_dict,
                 "end": end_dict,
+                "status": "confirmed",
             }
         else:  # date (all-day event, e.g. movies)
             start_dict = {"date": dtstart.isoformat()}
@@ -276,6 +323,7 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
                 "iCalUID": uid,
                 "start": start_dict,
                 "end": end_dict,
+                "status": "confirmed",
                 "reminders": {
                     "useDefault": False,
                     "overrides": [
@@ -285,8 +333,8 @@ def sync_ical_to_google_calendar(service, calendar_id: str, ical_obj: Calendar):
                         },  # 9:00 AM day before (15h / 900m before 00:00)
                         {
                             "method": "popup",
-                            "minutes": -540,
-                        },  # 9:00 AM day of event (9h after 00:00)
+                            "minutes": 0,
+                        },  # 9:00 AM day of event (0m at start of day)
                     ],
                 },
             }

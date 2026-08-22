@@ -147,8 +147,26 @@ def test_get_or_create_calendar_new():
     assert cal_id == "new_cal_456"
 
 
+def test_get_or_create_calendar_explicit_arg():
+    mock_service = MagicMock()
+    cal_id = google_sync.get_or_create_calendar(
+        mock_service, "Trakt Movies", calendar_id="custom_movies_cal_id"
+    )
+    assert cal_id == "custom_movies_cal_id"
+    mock_service.calendarList().list.assert_not_called()
+
+
+def test_get_or_create_calendar_env_override():
+    mock_service = MagicMock()
+    with patch.dict("os.environ", {"GOOGLE_CALENDAR_ID_TRAKT_MOVIES": "env_movie_cal_id"}):
+        cal_id = google_sync.get_or_create_calendar(mock_service, "Trakt Movies")
+        assert cal_id == "env_movie_cal_id"
+        mock_service.calendarList().list.assert_not_called()
+
+
 def test_event_has_changed_helper():
     base_existing = {
+        "status": "confirmed",
         "summary": "Movie A",
         "description": "Desc A",
         "start": {"date": "2026-08-01"},
@@ -160,6 +178,7 @@ def test_event_has_changed_helper():
         google_sync._event_has_changed(
             base_existing,
             {
+                "status": "confirmed",
                 "summary": "Movie A",
                 "description": "Desc A",
                 "start": {"date": "2026-08-01"},
@@ -167,6 +186,15 @@ def test_event_has_changed_helper():
             },
         )
         is False
+    )
+
+    # Status changed from cancelled to confirmed
+    assert (
+        google_sync._event_has_changed(
+            {"status": "cancelled", "summary": "Movie A", "description": "Desc A"},
+            {"status": "confirmed", "summary": "Movie A", "description": "Desc A"},
+        )
+        is True
     )
 
     # Summary changed
@@ -235,7 +263,9 @@ def test_upsert_single_event_update_and_insert():
     )
     assert is_update is True
     mock_service.events().patch.assert_called_with(
-        calendarId="cal_id", eventId="ev_1", body={"summary": "New Summary"}
+        calendarId="cal_id",
+        eventId="ev_1",
+        body={"summary": "New Summary", "status": "confirmed"},
     )
 
     # Test insert new event
@@ -243,7 +273,9 @@ def test_upsert_single_event_update_and_insert():
         mock_service, "cal_id", {"summary": "Brand New"}, existing_event=None
     )
     assert is_update_2 is False
-    mock_service.events().insert.assert_called_once()
+    mock_service.events().insert.assert_called_with(
+        calendarId="cal_id", body={"summary": "Brand New", "status": "confirmed"}
+    )
 
 
 def test_upsert_single_event_409_duplicate_fallback():
@@ -265,7 +297,7 @@ def test_upsert_single_event_409_duplicate_fallback():
     mock_service.events().patch.assert_called_with(
         calendarId="cal_id",
         eventId="recovered_id",
-        body={"summary": "Conflict Show", "iCalUID": "trakt-123"},
+        body={"summary": "Conflict Show", "iCalUID": "trakt-123", "status": "confirmed"},
     )
 
 
@@ -290,14 +322,22 @@ def test_fetch_all_google_events():
 
     events = google_sync._fetch_all_google_events(mock_service, "cal_id")
     assert len(events) == 2
+    mock_service.events().list.assert_called_with(
+        calendarId="cal_id",
+        pageToken="token2",
+        maxResults=2500,
+        singleEvents=False,
+        showDeleted=True,
+    )
 
 
 def test_delete_removed_events():
     mock_service = MagicMock()
     existing_events = [
-        {"id": "ev1", "iCalUID": "trakt-movie-1", "summary": "Movie 1"},
-        {"id": "ev2", "iCalUID": "trakt-movie-2", "summary": "Movie 2"},
-        {"id": "ev3", "iCalUID": "other-uid-3", "summary": "Other"},
+        {"id": "ev1", "iCalUID": "trakt-movie-1", "summary": "Movie 1", "status": "confirmed"},
+        {"id": "ev2", "iCalUID": "trakt-movie-2", "summary": "Movie 2", "status": "confirmed"},
+        {"id": "ev3", "iCalUID": "other-uid-3", "summary": "Other", "status": "confirmed"},
+        {"id": "ev4", "iCalUID": "trakt-movie-4", "summary": "Cancelled", "status": "cancelled"},
     ]
 
     current_uids = {"trakt-movie-1"}
@@ -305,6 +345,7 @@ def test_delete_removed_events():
         deleted = google_sync._delete_removed_events(
             mock_service, "cal_id", current_uids, existing_events
         )
+    # Only ev2 should be deleted; ev4 is already cancelled and ignored
     assert deleted == 1
     mock_service.events().delete.assert_called_once_with(
         calendarId="cal_id", eventId="ev2", sendUpdates="none"
