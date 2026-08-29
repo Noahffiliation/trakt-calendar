@@ -19,3 +19,4 @@ __pycache__/
 .coverage
 coverage.xml
 .show_cache.json.tmp
+workflow.sh
