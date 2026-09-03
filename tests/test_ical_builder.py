@@ -324,6 +324,30 @@ def test_create_episode_event_with_season_and_episode_slug():
         start_cutoff=None,
     )
     assert ev is not None
+    assert "https://app.trakt.tv/shows/hit-show/seasons/2/episodes/10" in str(ev.get("description"))
+
+
+def test_create_episode_event_special_season_zero_deep_link():
+    from ical_builder import _create_episode_event
+
+    ev = _create_episode_event(
+        {
+            "show": {"title": "Doctor Who", "ids": {"trakt": 456, "slug": "doctor-who-2005"}},
+            "episode": {
+                "title": "The Runaway Bride",
+                "season": 0,
+                "number": 1,
+                "runtime": "60",
+                "first_aired": "2026-09-01T20:00:00.000Z",
+            },
+        },
+        start_cutoff=None,
+    )
+    assert ev is not None
+    assert "📺 Doctor Who - S00E01 - The Runaway Bride" in str(ev.get("summary"))
+    assert "https://app.trakt.tv/shows/doctor-who-2005/seasons/0/episodes/1" in str(
+        ev.get("description")
+    )
 
 
 def test_safe_runtime_exceptions():

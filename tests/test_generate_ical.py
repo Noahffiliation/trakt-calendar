@@ -116,11 +116,18 @@ def test_sync_to_google():
 
     with (
         patch("google_sync.get_google_calendar_service", return_value=mock_service),
-        patch("google_sync.get_or_create_calendar", side_effect=["m_id", "s_id"]),
+        patch("google_sync.get_or_create_calendar", side_effect=["m_id", "s_id"]) as mock_get_cal,
         patch("google_sync.sync_ical_to_google_calendar") as mock_sync,
     ):
-        generate_ical._sync_to_google(mock_movies_cal, mock_shows_cal)
+        generate_ical._sync_to_google(
+            mock_movies_cal,
+            mock_shows_cal,
+            movies_cal_id_override="custom_m_id",
+            shows_cal_id_override="custom_s_id",
+        )
         assert mock_sync.call_count == 2
+        mock_get_cal.assert_any_call(mock_service, "Trakt Movies", calendar_id="custom_m_id")
+        mock_get_cal.assert_any_call(mock_service, "Trakt TV Shows", calendar_id="custom_s_id")
 
 
 def test_main(tmp_path):
@@ -129,6 +136,8 @@ def test_main(tmp_path):
     mock_args.days_back = 30
     mock_args.no_watched = False
     mock_args.sync_google = False
+    mock_args.movies_calendar_id = None
+    mock_args.shows_calendar_id = None
     mock_args.movies_output = str(tmp_path / "movies.ics")
     mock_args.shows_output = str(tmp_path / "shows.ics")
     mock_args.output = str(tmp_path / "combined.ics")
@@ -154,7 +163,22 @@ def test_main(tmp_path):
 def test_parse_args():
     with patch(
         "sys.argv",
-        ["generate_ical.py", "-c", "cid", "-t", "tok", "-v", "-g", "--no-watched", "-d", "45"],
+        [
+            "generate_ical.py",
+            "-c",
+            "cid",
+            "-t",
+            "tok",
+            "-v",
+            "-g",
+            "--no-watched",
+            "-d",
+            "45",
+            "--movies-calendar-id",
+            "mid123",
+            "--shows-calendar-id",
+            "sid456",
+        ],
     ):
         args = generate_ical.parse_args()
         assert args.client_id == "cid"
@@ -163,6 +187,8 @@ def test_parse_args():
         assert args.sync_google is True
         assert args.no_watched is True
         assert args.days_back == 45
+        assert args.movies_calendar_id == "mid123"
+        assert args.shows_calendar_id == "sid456"
 
 
 def test_add_candidate_show_edge_cases():

@@ -19,3 +19,8 @@ __pycache__/
 .coverage
 coverage.xml
 .show_cache.json.tmp
+workflow.sh
+artifacts/
+container-sbom.spdx.json
+trivy-results.sarif
+.scannerwork/
