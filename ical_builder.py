@@ -153,8 +153,10 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
 
     event = Event()
     show_title = show.get("title", "Unknown Show")
-    season_num = episode.get("season", 0)
-    ep_num = episode.get("number", 0)
+    raw_season = episode.get("season")
+    season_num = 0 if raw_season is None else raw_season
+    raw_ep = episode.get("number")
+    ep_num = 0 if raw_ep is None else raw_ep
     ep_title = episode.get("title") or f"Episode {ep_num}"
 
     summary = f"📺 {show_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
@@ -170,7 +172,7 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
     ep_overview = episode.get("overview") or show.get("overview") or DEFAULT_NO_OVERVIEW
 
     desc_parts = [f"Season {season_num}, Episode {ep_num}: {ep_title}", f"\n{ep_overview}"]
-    if slug and season_num and ep_num:
+    if slug and raw_season is not None and ep_num:
         desc_parts.append(
             f"\nTrakt: https://app.trakt.tv/shows/{slug}/seasons/{season_num}/episodes/{ep_num}"
         )
