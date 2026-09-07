@@ -31,7 +31,7 @@ jobs:
       contents: read
       packages: write
       security-events: write
-    uses: Noahffiliation/.github/.github/workflows/reusable-python-ci.yml@afe53f393e011428a95f78b2860cdc5e532ef8a2 # v1.2.1
+    uses: Noahffiliation/.github/.github/workflows/reusable-python-ci.yml@ca3becf54f61d6f1ab9d8cbaaacbe5d1dc8e16d5
     with:
       python-version: "3.12.3"
       test-docker: true
