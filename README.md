@@ -25,24 +25,12 @@ A step by step series of examples that tell you how to get a development env run
     cd trakt-calendar
     ```
 
-2. Create and activate a Python virtual environment:
+2. Install dependencies using uv:
     ```bash
-    # Create virtual environment
-    python -m venv .venv
-
-    # Activate on Windows PowerShell:
-    .\.venv\Scripts\Activate.ps1
-
-    # Activate on macOS/Linux:
-    source .venv/bin/activate
+    uv sync
     ```
 
-3. Install the required dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4. Configure your environment variables in `.env`:
+3. Configure your environment variables in `.env`:
     ```bash
     cp .env.example .env
     ```
@@ -54,12 +42,12 @@ TRAKT_USERNAME=your_trakt_username
 SYNC_GOOGLE=true
 ```
 
-5. Set up Google Calendar Service Account key (optional for Google Sync):
+4. Set up Google Calendar Service Account key (optional for Google Sync):
     Place your `service_account.json` file in the project root directory and share your `Trakt Movies` and `Trakt TV Shows` Google Calendars with the Service Account email address with "Make changes to events" permission.
 
     Run the script to fetch calendar data, build `.ics` files, and sync with Google Calendar:
     ```bash
-    python generate_ical.py --sync-google
+    uv run generate_ical.py --sync-google
     ```
 
 ### GitHub Actions Automated Sync Setup
@@ -68,8 +56,8 @@ To run the automated synchronization via GitHub Actions:
 2. Add the following repository secrets:
    - `TRAKT_CLIENT_ID`: Your Trakt API Client ID.
    - `TRAKT_CLIENT_SECRET`: Your Trakt API Client Secret.
-   - `TRAKT_ACCESS_TOKEN`: OAuth access token generated from `python auth.py`.
-   - `TRAKT_REFRESH_TOKEN`: OAuth refresh token generated from `python auth.py`.
+   - `TRAKT_ACCESS_TOKEN`: OAuth access token generated from `uv run auth.py`.
+   - `TRAKT_REFRESH_TOKEN`: OAuth refresh token generated from `uv run auth.py`.
    - `SERVICE_ACCOUNT_JSON`: Contents of your `service_account.json` (optional for Google Calendar sync).
    - `SYNC_GOOGLE`: Set to `true` if syncing with Google Calendar.
    - `GOOGLE_SHARE_EMAIL`: Your primary Google account email to share created calendars with.
