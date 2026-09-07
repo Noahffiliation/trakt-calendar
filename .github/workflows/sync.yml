@@ -45,7 +45,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          uv pip install --system --require-hashes -r requirements.txt
+          uv pip install --system --no-build --require-hashes -r requirements.txt
 
       - name: Setup Google Service Account (if provided)
         env:
