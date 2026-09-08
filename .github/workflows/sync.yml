@@ -45,7 +45,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          uv sync --frozen --no-dev
+          uv sync --locked --no-build --no-dev
 
       - name: Setup Google Service Account (if provided)
         env:
@@ -65,7 +65,7 @@ jobs:
           SYNC_GOOGLE: ${{ secrets.SYNC_GOOGLE || 'false' }}
           GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
         run: |
-          uv run generate_ical.py
+          uv run --locked --no-build generate_ical.py
 
       - name: Update Trakt Secrets in GitHub (if refreshed)
         if: always()
