@@ -166,3 +166,65 @@ def test_auth_dunder_main():
         pytest.raises(SystemExit),
     ):
         runpy.run_path("auth.py", run_name="__main__")
+
+
+def test_auth_main_success_updates_env_file(tmp_path, capsys):
+    env_file = tmp_path / ".env"
+    device_code_resp = MagicMock()
+    device_code_resp.status_code = 200
+    device_code_resp.json.return_value = {
+        "device_code": "dcode",
+        "user_code": "ucode",
+        "verification_url": "https://trakt.tv/activate",
+        "expires_in": 600,
+    }
+
+    token_resp = MagicMock()
+    token_resp.status_code = 200
+    token_resp.json.return_value = {"access_token": "acc_tok_999", "refresh_token": "ref_tok_888"}
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "TRAKT_CLIENT_ID": "cid",
+                "TRAKT_CLIENT_SECRET": "csecret",
+                "ENV_FILE": str(env_file),
+            },
+        ),
+        patch("requests.post", side_effect=[device_code_resp, token_resp]),
+        patch("builtins.input", return_value=""),
+    ):
+        auth.main([])
+
+    captured = capsys.readouterr().out
+    assert "Automatically updated" in captured
+    env_content = env_file.read_text(encoding="utf-8")
+    assert "TRAKT_ACCESS_TOKEN=acc_tok_999\n" in env_content
+    assert "TRAKT_REFRESH_TOKEN=ref_tok_888\n" in env_content
+
+
+def test_auth_main_refresh_updates_env_file(tmp_path, capsys):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TRAKT_ACCESS_TOKEN=old\nTRAKT_REFRESH_TOKEN=old\n", encoding="utf-8")
+    mock_token_data = {"access_token": "new_ref_acc", "refresh_token": "new_ref_tok"}
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "TRAKT_CLIENT_ID": "cid",
+                "TRAKT_CLIENT_SECRET": "csecret",
+                "TRAKT_REFRESH_TOKEN": "rtok",
+                "ENV_FILE": str(env_file),
+            },
+        ),
+        patch("auth.refresh_oauth_token", return_value=mock_token_data),
+    ):
+        auth.main(["--refresh"])
+
+    captured = capsys.readouterr().out
+    assert "Automatically updated" in captured
+    env_content = env_file.read_text(encoding="utf-8")
+    assert "TRAKT_ACCESS_TOKEN=new_ref_acc\n" in env_content
+    assert "TRAKT_REFRESH_TOKEN=new_ref_tok\n" in env_content

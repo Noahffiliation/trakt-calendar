@@ -7,11 +7,79 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _match_env_key(stripped: str, updates: dict[str, str]) -> tuple[str, str] | None:
+    for key, val in updates.items():
+        if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
+            return key, val
+    return None
+
+
+def _replace_env_lines(lines: list[str], updates: dict[str, str]) -> tuple[list[str], set[str]]:
+    updated_keys: set[str] = set()
+    new_lines: list[str] = []
+
+    for line in lines:
+        match = _match_env_key(line.strip(), updates)
+        if match is not None:
+            key, val = match
+            new_lines.append(f"{key}={val}\n")
+            updated_keys.add(key)
+        else:
+            new_lines.append(line)
+
+    return new_lines, updated_keys
+
+
+def _append_missing_keys(
+    lines: list[str], updates: dict[str, str], updated_keys: set[str]
+) -> list[str]:
+    result = list(lines)
+    missing_items = [f"{k}={v}\n" for k, v in updates.items() if k not in updated_keys]
+    if not missing_items:
+        return result
+
+    if result and not result[-1].endswith("\n"):
+        result[-1] += "\n"
+    result.extend(missing_items)
+    return result
+
+
+def _write_env_atomic(path: Path, lines: list[str]) -> None:
+    tmp_path = Path(f"{path}.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    os.replace(tmp_path, path)
+
+
+def update_env_file(
+    env_file_path: str | Path,
+    updates: dict[str, str],
+    create_if_missing: bool = False,
+) -> bool:
+    """Updates key-value pairs in an environment (.env) file while preserving existing comments and ordering."""
+    path = Path(env_file_path)
+    if not path.exists():
+        if not create_if_missing:
+            return False
+        _write_env_atomic(path, [f"{k}={v}\n" for k, v in updates.items()])
+        return True
+
+    with open(path, encoding="utf-8") as f:
+        lines = f.readlines()
+
+    new_lines, updated_keys = _replace_env_lines(lines, updates)
+    final_lines = _append_missing_keys(new_lines, updates, updated_keys)
+    _write_env_atomic(path, final_lines)
+    return True
+
 
 TRAKT_API_URL = "https://api.trakt.tv"
 CACHE_FILE = ".show_cache.json"
@@ -80,6 +148,7 @@ class TraktClient:
         base_url: str = TRAKT_API_URL,
         cache_file: str = CACHE_FILE,
         refreshed_tokens_file: str = REFRESHED_TOKENS_FILE,
+        env_file: str | None = None,
         session: requests.Session | None = None,
     ):
         if not client_id:
@@ -93,8 +162,18 @@ class TraktClient:
         self.base_url = base_url.rstrip("/")
         self.cache_file = cache_file
         self.refreshed_tokens_file = refreshed_tokens_file
+        self.env_file: str | None
+        if env_file is not None:
+            self.env_file = env_file
+        elif os.getenv("ENV_FILE"):
+            self.env_file = os.getenv("ENV_FILE")
+        elif not os.getenv("PYTEST_CURRENT_TEST") and os.path.exists(".env"):
+            self.env_file = ".env"
+        else:
+            self.env_file = None
         self.session = session or requests.Session()
         self._show_cache = self._load_cache()
+        self._refresh_failed = False
 
     def _get_headers(self) -> dict[str, str]:
         headers = {
@@ -107,7 +186,7 @@ class TraktClient:
         return headers
 
     def _save_refreshed_tokens(self):
-        """Saves refreshed tokens to a temporary JSON file and GitHub Actions output if present."""
+        """Saves refreshed tokens to a temporary JSON file, updates .env if present, and GitHub Actions output if present."""
         if not self.access_token or not self.refresh_token:
             return
 
@@ -124,6 +203,19 @@ class TraktClient:
                 f"Could not save refreshed tokens to '{self.refreshed_tokens_file}': {e}"
             )
 
+        if self.env_file and os.path.exists(self.env_file):
+            try:
+                update_env_file(
+                    self.env_file,
+                    {
+                        "TRAKT_ACCESS_TOKEN": self.access_token,
+                        "TRAKT_REFRESH_TOKEN": self.refresh_token,
+                    },
+                )
+                logger.info(f"Updated refreshed tokens in '{self.env_file}'.")
+            except Exception as e:
+                logger.warning(f"Could not update tokens in '{self.env_file}': {e}")
+
         github_output = os.getenv("GITHUB_OUTPUT")
         if github_output and os.path.exists(github_output):
             try:
@@ -136,7 +228,7 @@ class TraktClient:
 
     def _try_refresh_token(self) -> bool:
         """Attempt to automatically refresh access token if client_secret & refresh_token are present."""
-        if not self.client_secret or not self.refresh_token:
+        if self._refresh_failed or not self.client_secret or not self.refresh_token:
             return False
 
         logger.info(
@@ -160,15 +252,18 @@ class TraktClient:
                 data = response.json()
                 self.access_token = data.get("access_token")
                 self.refresh_token = data.get("refresh_token")
+                self._refresh_failed = False
                 logger.info("✅ Successfully refreshed Trakt OAuth access token!")
                 self._save_refreshed_tokens()
                 return True
             else:
+                self._refresh_failed = True
                 logger.warning(
                     f"Automatic token refresh failed ({response.status_code}): {response.text}"
                 )
                 return False
         except Exception as e:
+            self._refresh_failed = True
             logger.warning(f"Error during automatic token refresh: {e}")
             return False
 
@@ -195,12 +290,14 @@ class TraktClient:
     ) -> requests.Response:
         """Execute HTTP request with automatic retry logic for 401 auth refresh, rate limits (429) & Cloudflare pacing."""
         refreshed_attempted = False
+        retries = max(1, max_retries)
+        response: requests.Response | None = None
 
-        for attempt in range(1, max_retries + 1):
+        for attempt in range(1, retries + 1):
             headers = self._get_headers()
             response = _make_http_request(method, url, headers, params, session=self.session)
 
-            if response.status_code == 401 and not refreshed_attempted:
+            if response.status_code == 401 and not refreshed_attempted and not self._refresh_failed:
                 refreshed_attempted = True
                 if self._try_refresh_token():
                     continue
@@ -208,12 +305,16 @@ class TraktClient:
             if _is_rate_limited(response):
                 wait_sec = _get_retry_wait_sec(response, attempt)
                 logger.warning(
-                    f"Rate limited by Trakt API (Status {response.status_code}). Waiting {wait_sec}s before retry {attempt}/{max_retries}..."
+                    f"Rate limited by Trakt API (Status {response.status_code}). Waiting {wait_sec}s before retry {attempt}/{retries}..."
                 )
                 time.sleep(wait_sec)
                 continue
 
             return response
+
+        if response is None:
+            headers = self._get_headers()
+            response = _make_http_request(method, url, headers, params, session=self.session)
 
         return response
 

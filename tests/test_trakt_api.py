@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from trakt_api import TraktAPIError, TraktClient
+from trakt_api import TraktAPIError, TraktClient, update_env_file
 
 
 def test_trakt_client_init_requires_client_id():
@@ -106,9 +106,14 @@ def test_get_show_seasons_with_episodes(mock_get):
 
 @patch.object(requests.Session, "post")
 @patch.object(requests.Session, "get")
-def test_auto_refresh_on_401(mock_get, mock_post):
+def test_auto_refresh_on_401(mock_get, mock_post, tmp_path):
+    token_file = tmp_path / "refreshed.json"
     client = TraktClient(
-        client_id="cid", access_token="old_acc", client_secret="csecret", refresh_token="old_ref"
+        client_id="cid",
+        access_token="old_acc",
+        client_secret="csecret",
+        refresh_token="old_ref",
+        refreshed_tokens_file=str(token_file),
     )
 
     mock_401 = MagicMock()
@@ -393,6 +398,14 @@ def test_request_with_retry_exhausted_retries():
         assert resp.status_code == 429
 
 
+def test_request_with_retry_zero_retries():
+    client = TraktClient(client_id="test_id")
+    mock_200 = MagicMock(status_code=200)
+    with patch.object(client.session, "get", return_value=mock_200):
+        resp = client._request_with_retry("GET", "https://api.trakt.tv/test", max_retries=0)
+        assert resp.status_code == 200
+
+
 def test_fetch_paginated_list_error_no_raise():
     client = TraktClient(client_id="test_id", username="johndoe")
     mock_500 = MagicMock(status_code=500, text="Server error")
@@ -424,3 +437,100 @@ def test_get_show_seasons_with_episodes_live_fetch(tmp_path):
         assert len(seasons) == 1
         assert seasons[0]["episodes"][0]["title"] == "Fresh Ep"
         assert "12345" in client._show_cache
+
+
+def test_update_env_file_existing(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "# Header comment\n"
+        "EXISTING_KEY=old_value\n"
+        "TRAKT_ACCESS_TOKEN=old_acc\n"
+        "TRAKT_REFRESH_TOKEN=old_ref\n"
+        "# Footer comment\n",
+        encoding="utf-8",
+    )
+
+    success = update_env_file(
+        env_path,
+        {"TRAKT_ACCESS_TOKEN": "new_acc_val", "TRAKT_REFRESH_TOKEN": "new_ref_val"},
+    )
+    assert success is True
+
+    content = env_path.read_text(encoding="utf-8")
+    assert "# Header comment\n" in content
+    assert "EXISTING_KEY=old_value\n" in content
+    assert "TRAKT_ACCESS_TOKEN=new_acc_val\n" in content
+    assert "TRAKT_REFRESH_TOKEN=new_ref_val\n" in content
+    assert "# Footer comment\n" in content
+
+
+def test_update_env_file_append_and_create(tmp_path):
+    env_path = tmp_path / ".env"
+    # When file does not exist and create_if_missing is False
+    assert update_env_file(env_path, {"KEY": "val"}, create_if_missing=False) is False
+
+    # When file does not exist and create_if_missing is True
+    assert update_env_file(env_path, {"KEY1": "val1"}, create_if_missing=True) is True
+    content = env_path.read_text(encoding="utf-8")
+    assert "KEY1=val1\n" in content
+
+    # Append new key to existing file without trailing newline
+    env_path.write_text("FOO=bar", encoding="utf-8")
+    assert update_env_file(env_path, {"BAZ": "qux"}) is True
+    content = env_path.read_text(encoding="utf-8")
+    assert "FOO=bar\n" in content
+    assert "BAZ=qux\n" in content
+
+
+def test_save_refreshed_tokens_updates_env_file(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "TRAKT_ACCESS_TOKEN=initial_acc\nTRAKT_REFRESH_TOKEN=initial_ref\n", encoding="utf-8"
+    )
+    token_file = tmp_path / "refreshed.json"
+
+    client = TraktClient(
+        client_id="cid",
+        access_token="updated_acc",
+        refresh_token="updated_ref",
+        refreshed_tokens_file=str(token_file),
+        env_file=str(env_path),
+    )
+    client._save_refreshed_tokens()
+
+    env_content = env_path.read_text(encoding="utf-8")
+    assert "TRAKT_ACCESS_TOKEN=updated_acc\n" in env_content
+    assert "TRAKT_REFRESH_TOKEN=updated_ref\n" in env_content
+
+
+def test_refresh_failed_circuit_breaker(tmp_path):
+    token_file = tmp_path / "refreshed.json"
+    client = TraktClient(
+        client_id="cid",
+        access_token="bad_acc",
+        client_secret="secret",
+        refresh_token="bad_ref",
+        refreshed_tokens_file=str(token_file),
+    )
+
+    mock_401 = MagicMock(status_code=401, text="Unauthorized")
+    mock_400 = MagicMock(
+        status_code=400,
+        text='{"error_description":"session not found","error":"invalid_grant"}',
+    )
+
+    with (
+        patch.object(client.session, "get", return_value=mock_401),
+        patch.object(client.session, "post", return_value=mock_400) as mock_post,
+    ):
+        # First call gets 401, triggers _try_refresh_token, which returns 400 (fails)
+        resp1 = client._request_with_retry("GET", "https://api.trakt.tv/users/hidden/dropped")
+        assert resp1.status_code == 401
+        assert client._refresh_failed is True
+        assert mock_post.call_count == 1
+
+        # Second call also gets 401, but circuit breaker is active (_refresh_failed is True)
+        # It must NOT call post again to try refreshing
+        resp2 = client._request_with_retry("GET", "https://api.trakt.tv/sync/watchlist")
+        assert resp2.status_code == 401
+        assert mock_post.call_count == 1  # Not incremented!
