@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def _match_env_key(stripped: str, updates: dict[str, str]) -> tuple[str, str] | None:
     for key, val in updates.items():
-        if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
+        if stripped.startswith((f"{key}=", f"{key} =")):
             return key, val
     return None
 
