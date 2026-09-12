@@ -17,7 +17,7 @@ jobs:
   sync:
     name: Sync Trakt Calendar & Generate iCal
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
