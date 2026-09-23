@@ -3,6 +3,7 @@ Trakt API Client for fetching watchlist, watched progress, hidden shows, and sho
 Includes automatic rate-limiting retry handling, request pacing, and local caching for show data.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -54,8 +55,22 @@ def _append_missing_keys(
 
 def _write_env_atomic(path: Path, lines: list[str]) -> None:
     tmp_path = Path(f"{path}.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+    mode = 0o600
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        # File does not exist or stat failed; default to secure 0o600
+        mode = 0o600
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(tmp_path, flags, mode)
+    try:
+        content = "".join(lines).encode("utf-8")
+        os.write(fd, content)
+    finally:
+        os.close(fd)
+    with contextlib.suppress(OSError):
+        # Ignore chmod errors on systems or filesystems that do not support it (e.g. Windows)
+        os.chmod(tmp_path, mode)
     os.replace(tmp_path, path)
 
 

@@ -2,12 +2,14 @@
 Unit tests for TraktAPI Client.
 """
 
+import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
-from trakt_api import TraktAPIError, TraktClient, update_env_file
+from trakt_api import TraktAPIError, TraktClient, _write_env_atomic, update_env_file
 
 
 def test_trakt_client_init_requires_client_id():
@@ -534,3 +536,46 @@ def test_refresh_failed_circuit_breaker(tmp_path):
         resp2 = client._request_with_retry("GET", "https://api.trakt.tv/sync/watchlist")
         assert resp2.status_code == 401
         assert mock_post.call_count == 1  # Not incremented!
+
+
+def test_update_env_file_permissions(tmp_path):
+    env_path = tmp_path / ".env"
+    # When creating a new file, it should have 0o600 permissions
+    assert update_env_file(env_path, {"SECRET_KEY": "val"}, create_if_missing=True) is True
+    assert (env_path.stat().st_mode & 0o777) == 0o600
+
+    # When updating an existing file, existing mode is preserved
+    env_path.chmod(0o640)
+    assert update_env_file(env_path, {"SECRET_KEY": "val2"}) is True
+    assert (env_path.stat().st_mode & 0o777) == 0o640
+
+
+def test_write_env_atomic_oserror_handling(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    env_path.write_text("KEY=val\n", encoding="utf-8")
+
+    original_stat = Path.stat
+
+    # Simulate path.stat() raising OSError for env_path
+    def mock_stat(self, *args, **kwargs):
+        if str(self) == str(env_path):
+            raise OSError("stat failed")
+        return original_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", mock_stat)
+    _write_env_atomic(env_path, ["KEY=new\n"])
+    assert env_path.read_text(encoding="utf-8") == "KEY=new\n"
+
+    other_path = tmp_path / "other"
+    other_path.touch()
+    assert other_path.stat() is not None
+
+    monkeypatch.undo()
+
+    # Simulate os.chmod() raising OSError
+    def mock_chmod(path, mode):
+        raise OSError("chmod failed")
+
+    monkeypatch.setattr(os, "chmod", mock_chmod)
+    _write_env_atomic(env_path, ["KEY=chmod_fail\n"])
+    assert env_path.read_text(encoding="utf-8") == "KEY=chmod_fail\n"
