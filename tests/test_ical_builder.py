@@ -254,7 +254,7 @@ def test_create_episode_event_edge_cases():
         start_cutoff=None,
     )
     assert ev is not None
-    assert "https://app.trakt.tv/shows/show-slug" in str(ev.get("description"))
+    assert "https://og.trakt.tv/shows/show-slug" in str(ev.get("description"))
 
 
 def test_create_premiere_event_and_calendar_integration():
@@ -287,7 +287,7 @@ def test_create_premiere_event_and_calendar_integration():
     ev = _create_premiere_event(prem, start_cutoff=None)
     assert ev is not None
     assert "📺 New Series (Series Premiere)" in str(ev.get("summary"))
-    assert "https://app.trakt.tv/shows/new-series" in str(ev.get("description"))
+    assert "https://og.trakt.tv/shows/new-series" in str(ev.get("description"))
 
     # Premiere without slug or overview
     prem_bare = {"show": {"title": "Bare Show", "first_aired": "2026-09-01T00:00:00.000Z"}}
@@ -324,7 +324,7 @@ def test_create_episode_event_with_season_and_episode_slug():
         start_cutoff=None,
     )
     assert ev is not None
-    assert "https://app.trakt.tv/shows/hit-show/seasons/2/episodes/10" in str(ev.get("description"))
+    assert "https://og.trakt.tv/shows/hit-show/seasons/2/episodes/10" in str(ev.get("description"))
 
 
 def test_create_episode_event_special_season_zero_deep_link():
@@ -345,7 +345,7 @@ def test_create_episode_event_special_season_zero_deep_link():
     )
     assert ev is not None
     assert "📺 Doctor Who - S00E01 - The Runaway Bride" in str(ev.get("summary"))
-    assert "https://app.trakt.tv/shows/doctor-who-2005/seasons/0/episodes/1" in str(
+    assert "https://og.trakt.tv/shows/doctor-who-2005/seasons/0/episodes/1" in str(
         ev.get("description")
     )
 

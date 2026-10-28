@@ -104,7 +104,7 @@ def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> 
 
     desc_parts = [overview]
     if slug:
-        desc_parts.append(f"\nTrakt: https://app.trakt.tv/movies/{slug}")
+        desc_parts.append(f"\nTrakt: https://og.trakt.tv/movies/{slug}")
 
     event.add("description", "\n".join(desc_parts))
     event.add("uid", f"trakt-movie-{trakt_id}@trakt-calendar")
@@ -174,10 +174,10 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
     desc_parts = [f"Season {season_num}, Episode {ep_num}: {ep_title}", f"\n{ep_overview}"]
     if slug and raw_season is not None and ep_num:
         desc_parts.append(
-            f"\nTrakt: https://app.trakt.tv/shows/{slug}/seasons/{season_num}/episodes/{ep_num}"
+            f"\nTrakt: https://og.trakt.tv/shows/{slug}/seasons/{season_num}/episodes/{ep_num}"
         )
     elif slug:
-        desc_parts.append(f"\nTrakt: https://app.trakt.tv/shows/{slug}")
+        desc_parts.append(f"\nTrakt: https://og.trakt.tv/shows/{slug}")
 
     event.add("description", "\n".join(desc_parts))
     event.add("uid", f"trakt-ep-{trakt_id}-s{season_num}e{ep_num}@trakt-calendar")
@@ -213,7 +213,7 @@ def _create_premiere_event(
 
     desc_parts = [overview]
     if slug:
-        desc_parts.append(f"\nTrakt: https://app.trakt.tv/shows/{slug}")
+        desc_parts.append(f"\nTrakt: https://og.trakt.tv/shows/{slug}")
 
     event.add("description", "\n".join(desc_parts))
     event.add("uid", f"trakt-show-{trakt_id}-premiere@trakt-calendar")
