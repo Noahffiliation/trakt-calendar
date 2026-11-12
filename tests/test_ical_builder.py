@@ -10,6 +10,7 @@ from ical_builder import (
     build_calendar,
     build_movies_calendar,
     build_shows_calendar,
+    build_streaming_calendar,
     parse_date,
     parse_datetime,
 )
@@ -363,3 +364,72 @@ def test_build_calendar_with_premieres():
     cal = build_calendar(movies=[], episodes=[], shows_premieres=[prem], start_cutoff=None)
     events = [c for c in cal.subcomponents if c.name == "VEVENT"]
     assert len(events) == 1
+
+
+def test_build_streaming_calendar_and_events():
+    from ical_builder import _create_streaming_event
+
+    now_utc = datetime.now(UTC)
+
+    # Missing released date
+    assert _create_streaming_event({"movie": {"title": "No Date"}}, start_cutoff=None) is None
+
+    # Filtered by start_cutoff
+    assert (
+        _create_streaming_event(
+            {"movie": {"title": "Old Stream"}, "released": "2020-01-01"},
+            start_cutoff=now_utc,
+        )
+        is None
+    )
+
+    streaming_movies = [
+        {
+            "movie": {
+                "title": "Dune: Part Two",
+                "year": 2024,
+                "overview": "Paul Atreides unites with Chani and the Fremen.",
+                "ids": {"trakt": 555, "slug": "dune-part-two-2024"},
+            },
+            "released": (now_utc + timedelta(days=10)).strftime("%Y-%m-%d"),
+            "note": "Max / 4K UHD",
+        },
+        {
+            "movie": {
+                "title": "Old Streaming Movie",
+                "year": 2020,
+                "ids": {"trakt": 556},
+            },
+            "released": "2020-01-01",
+        },
+    ]
+
+    stream_cal = build_streaming_calendar(
+        streaming_movies=streaming_movies,
+        start_cutoff=now_utc - timedelta(days=30),
+    )
+    assert stream_cal["x-wr-calname"] == "Trakt Streaming"
+    events = [c for c in stream_cal.subcomponents if c.name == "VEVENT"]
+    assert len(events) == 1
+
+    ev = events[0]
+    assert "🍿 Dune: Part Two (2024) (Streaming)" in str(ev.get("summary"))
+    assert "trakt-streaming-555@trakt-calendar" in str(ev.get("uid"))
+    assert "Streaming Note: Max / 4K UHD" in str(ev.get("description"))
+    assert "https://og.trakt.tv/movies/dune-part-two-2024" in str(ev.get("description"))
+
+    alarms = [c for c in ev.subcomponents if c.name == "VALARM"]
+    assert len(alarms) == 2
+    alarm_descs = [str(a.get("description")) for a in alarms]
+    assert "Movie streaming tomorrow: Dune: Part Two" in alarm_descs
+    assert "Movie streaming today: Dune: Part Two" in alarm_descs
+
+    # Combined calendar also includes streaming_movies
+    combined = build_calendar(
+        movies=[],
+        episodes=[],
+        streaming_movies=streaming_movies,
+        start_cutoff=now_utc - timedelta(days=30),
+    )
+    combined_events = [c for c in combined.subcomponents if c.name == "VEVENT"]
+    assert len(combined_events) == 1

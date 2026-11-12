@@ -462,3 +462,49 @@ class TraktClient:
         self._save_cache()
 
         return seasons_data
+
+    def get_movie_releases(self, movie_id: str | int, country: str = "us") -> list[dict[str, Any]]:
+        """
+        Fetch release dates and types (e.g., digital, physical, theatrical) for a movie
+        with local caching and request pacing.
+        GET /movies/{id}/releases/{country}
+        """
+        cache_key = (
+            f"movie_releases_{movie_id}_{country}" if country else f"movie_releases_{movie_id}"
+        )
+        now_ts = time.time()
+
+        # Check local cache
+        if cache_key in self._show_cache:
+            cache_entry = self._show_cache[cache_key]
+            cached_ts = cache_entry.get("timestamp", 0)
+            if now_ts - cached_ts < CACHE_TTL_HOURS * 3600:
+                return cache_entry.get("releases", [])
+
+        # Pacing request: 0.1s delay to prevent Cloudflare rate-limiting on large libraries
+        time.sleep(0.1)
+
+        endpoint = (
+            f"{self.base_url}/movies/{movie_id}/releases/{country}"
+            if country
+            else f"{self.base_url}/movies/{movie_id}/releases"
+        )
+        response = self._request_with_retry("GET", endpoint)
+
+        if response.status_code == 404:
+            logger.warning(f"Movie {movie_id} releases not found (404).")
+            return []
+        elif response.status_code != 200:
+            raise TraktAPIError(
+                f"Trakt API error fetching movie {movie_id} releases: {response.status_code} - {response.text}"
+            )
+
+        releases_data = response.json()
+        if not isinstance(releases_data, list):
+            releases_data = []
+
+        # Save to local cache
+        self._show_cache[cache_key] = {"timestamp": now_ts, "releases": releases_data}
+        self._save_cache()
+
+        return releases_data

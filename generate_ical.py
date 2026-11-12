@@ -13,7 +13,13 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from ical_builder import build_calendar, build_movies_calendar, build_shows_calendar
+from ical_builder import (
+    build_calendar,
+    build_movies_calendar,
+    build_shows_calendar,
+    build_streaming_calendar,
+    parse_datetime,
+)
 from trakt_api import TraktAPIError, TraktClient
 
 # Load .env if present
@@ -64,6 +70,12 @@ def parse_args():
         help="Shows output .ics file path (default: trakt_shows.ics)",
     )
     parser.add_argument(
+        "-sto",
+        "--streaming-output",
+        default=os.getenv("STREAMING_OUTPUT_FILE", "trakt_streaming.ics"),
+        help="Streaming output .ics file path (default: trakt_streaming.ics)",
+    )
+    parser.add_argument(
         "-d",
         "--days-back",
         type=int,
@@ -91,6 +103,12 @@ def parse_args():
         "--shows-calendar-id",
         default=os.getenv("GOOGLE_CALENDAR_ID_SHOWS") or os.getenv("GOOGLE_SHOWS_CALENDAR_ID"),
         help="Google Calendar ID for Trakt TV Shows (optional, overrides default calendar search/create)",
+    )
+    parser.add_argument(
+        "--streaming-calendar-id",
+        default=os.getenv("GOOGLE_CALENDAR_ID_STREAMING")
+        or os.getenv("GOOGLE_STREAMING_CALENDAR_ID"),
+        help="Google Calendar ID for Trakt Streaming (optional, overrides default calendar search/create)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose debug logging")
     return parser.parse_args()
@@ -241,11 +259,78 @@ def _fetch_show_episodes(client: TraktClient, candidate_shows: list, direct_epis
     return episodes_to_include, standalone_premieres
 
 
+def _is_recent_or_upcoming_movie(movie: dict[str, Any], start_cutoff: datetime | None) -> bool:
+    """Return True if the movie is unreleased or released recently enough to have an upcoming/recent streaming release."""
+    if start_cutoff is None:
+        return True
+
+    min_theatrical_dt = start_cutoff - timedelta(days=365)
+    released_str = movie.get("released")
+    if released_str:
+        release_dt = parse_datetime(released_str)
+        if release_dt and release_dt < min_theatrical_dt:
+            return False
+    else:
+        year = movie.get("year")
+        if isinstance(year, int) and year < min_theatrical_dt.year:
+            return False
+
+    return True
+
+
+def _fetch_movie_streaming_releases(
+    client: TraktClient,
+    movies: list[dict[str, Any]],
+    start_cutoff: datetime | None = None,
+) -> list[dict[str, Any]]:
+    streaming_movies: list[dict[str, Any]] = []
+
+    for item in movies:
+        movie = item.get("movie", item)
+        if not _is_recent_or_upcoming_movie(movie, start_cutoff):
+            continue
+
+        movie_id = movie.get("ids", {}).get("trakt")
+        movie_title = movie.get("title", f"Movie {movie_id}")
+
+        if not movie_id:
+            continue
+
+        try:
+            releases = client.get_movie_releases(movie_id)
+        except TraktAPIError as e:
+            logger.warning(f"Could not fetch streaming releases for '{movie_title}': {e}")
+            continue
+
+        digital_releases = [
+            r
+            for r in releases
+            if r.get("release_type") in ("digital", "streaming") and r.get("release_date")
+        ]
+        if not digital_releases:
+            continue
+
+        digital_releases.sort(key=lambda r: (str(r.get("release_date")), 0 if r.get("note") else 1))
+        chosen = digital_releases[0]
+        streaming_movies.append(
+            {
+                "movie": movie,
+                "released": chosen["release_date"],
+                "note": chosen.get("note"),
+            }
+        )
+
+    logger.info(f"Found {len(streaming_movies)} movie(s) with streaming/digital release dates.")
+    return streaming_movies
+
+
 def _sync_to_google(
     movies_cal,
     shows_cal,
+    streaming_cal=None,
     movies_cal_id_override: str | None = None,
     shows_cal_id_override: str | None = None,
+    streaming_cal_id_override: str | None = None,
 ):
     logger.info("Initializing Direct Google Calendar API Sync...")
     try:
@@ -266,6 +351,12 @@ def _sync_to_google(
             service, "Trakt TV Shows", calendar_id=shows_cal_id_override
         )
         sync_ical_to_google_calendar(service, shows_cal_id, shows_cal)
+
+        if streaming_cal is not None:
+            streaming_cal_id = get_or_create_calendar(
+                service, "Trakt Streaming", calendar_id=streaming_cal_id_override
+            )
+            sync_ical_to_google_calendar(service, streaming_cal_id, streaming_cal)
 
         logger.info("✅ Direct Google Calendar API sync complete!")
     except Exception:
@@ -304,6 +395,8 @@ def main():
         client, candidate_shows, direct_episodes
     )
 
+    streaming_movies = _fetch_movie_streaming_releases(client, movies, start_cutoff=start_cutoff)
+
     # Build Calendars
     movies_cal = build_movies_calendar(
         movies=movies, start_cutoff=start_cutoff, calendar_name="Trakt Movies"
@@ -314,10 +407,16 @@ def main():
         start_cutoff=start_cutoff,
         calendar_name="Trakt TV Shows",
     )
+    streaming_cal = build_streaming_calendar(
+        streaming_movies=streaming_movies,
+        start_cutoff=start_cutoff,
+        calendar_name="Trakt Streaming",
+    )
     combined_cal = build_calendar(
         movies=movies,
         episodes=episodes_to_include,
         shows_premieres=standalone_premieres,
+        streaming_movies=streaming_movies,
         start_cutoff=start_cutoff,
         calendar_name="Trakt Watchlist & Progress",
     )
@@ -325,6 +424,7 @@ def main():
     # Write .ics Files
     write_ics(movies_cal, args.movies_output)
     write_ics(shows_cal, args.shows_output)
+    write_ics(streaming_cal, args.streaming_output)
     write_ics(combined_cal, args.output)
 
     # Optional Direct Google Calendar Sync
@@ -332,8 +432,10 @@ def main():
         _sync_to_google(
             movies_cal,
             shows_cal,
+            streaming_cal,
             movies_cal_id_override=args.movies_calendar_id,
             shows_cal_id_override=args.shows_calendar_id,
+            streaming_cal_id_override=args.streaming_calendar_id,
         )
 
     logger.info("Done generating all calendars!")

@@ -43,7 +43,7 @@ SYNC_GOOGLE=true
 ```
 
 4. Set up Google Calendar Service Account key (optional for Google Sync):
-    Place your `service_account.json` file in the project root directory and share your `Trakt Movies` and `Trakt TV Shows` Google Calendars with the Service Account email address with "Make changes to events" permission.
+    Place your `service_account.json` file in the project root directory and share your `Trakt Movies`, `Trakt TV Shows`, and `Trakt Streaming` Google Calendars with the Service Account email address with "Make changes to events" permission.
 
     Run the script to fetch calendar data, build `.ics` files, and sync with Google Calendar:
     ```bash
@@ -91,10 +91,11 @@ To generate updated iCal files locally:
 python generate_ical.py
 ```
 
-This will produce three `.ics` files in the current working directory:
+This will produce four `.ics` files in the current working directory:
 - `trakt_movies.ics`: Contains release dates for movies in your watchlist.
 - `trakt_shows.ics`: Contains air dates for TV episodes in progress and on your watchlist.
-- `trakt_watchlist.ics`: Combined calendar containing both movies and TV show episodes.
+- `trakt_streaming.ics`: Contains digital/streaming release dates for movies in your watchlist.
+- `trakt_watchlist.ics`: Combined calendar containing movies, TV show episodes, and streaming releases.
 
 To generate calendar files and trigger Google Calendar synchronization via Service Account:
 ```bash

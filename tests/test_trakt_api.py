@@ -579,3 +579,58 @@ def test_write_env_atomic_oserror_handling(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "chmod", mock_chmod)
     _write_env_atomic(env_path, ["KEY=chmod_fail\n"])
     assert env_path.read_text(encoding="utf-8") == "KEY=chmod_fail\n"
+
+
+def test_get_movie_releases_caching_and_errors(tmp_path):
+    import time
+
+    cache_file = tmp_path / "movie_releases_cache.json"
+    client = TraktClient(client_id="test_id", username="johndoe", cache_file=str(cache_file))
+
+    client._show_cache = {
+        "movie_releases_100_us": {
+            "timestamp": time.time(),
+            "releases": [{"release_date": "2026-10-01", "release_type": "digital"}],
+        },
+        "movie_releases_200_us": {
+            "timestamp": time.time() - (25 * 3600),
+            "releases": [{"release_date": "2026-09-01", "release_type": "digital"}],
+        },
+    }
+
+    # 1. Cache hit within TTL
+    releases_100 = client.get_movie_releases(100, country="us")
+    assert len(releases_100) == 1
+    assert releases_100[0]["release_type"] == "digital"
+
+    # 2. Live fetch after TTL expiration (and without country parameter)
+    mock_200 = MagicMock(status_code=200)
+    mock_200.json.return_value = [
+        {"release_date": "2026-11-15", "release_type": "digital", "note": "Netflix"}
+    ]
+    with patch.object(client.session, "get", return_value=mock_200), patch("time.sleep"):
+        releases_200 = client.get_movie_releases(200, country="")
+        assert len(releases_200) == 1
+        assert releases_200[0]["note"] == "Netflix"
+        assert "movie_releases_200" in client._show_cache
+
+    # 3. Non-list JSON response fallback
+    mock_non_list = MagicMock(status_code=200)
+    mock_non_list.json.return_value = {"unexpected": "dict"}
+    with patch.object(client.session, "get", return_value=mock_non_list), patch("time.sleep"):
+        releases_non_list = client.get_movie_releases(300, country="us")
+        assert releases_non_list == []
+
+    # 4. 404 Not Found response
+    mock_404 = MagicMock(status_code=404, text="Not Found")
+    with patch.object(client.session, "get", return_value=mock_404), patch("time.sleep"):
+        assert client.get_movie_releases(404, country="us") == []
+
+    # 5. 500 Server Error response
+    mock_500 = MagicMock(status_code=500, text="Server Error")
+    with (
+        patch.object(client.session, "get", return_value=mock_500),
+        patch("time.sleep"),
+        pytest.raises(TraktAPIError),
+    ):
+        client.get_movie_releases(500, country="us")

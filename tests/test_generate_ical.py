@@ -113,21 +113,61 @@ def test_sync_to_google():
     mock_service = MagicMock()
     mock_movies_cal = MagicMock()
     mock_shows_cal = MagicMock()
+    mock_streaming_cal = MagicMock()
 
     with (
         patch("google_sync.get_google_calendar_service", return_value=mock_service),
-        patch("google_sync.get_or_create_calendar", side_effect=["m_id", "s_id"]) as mock_get_cal,
+        patch(
+            "google_sync.get_or_create_calendar", side_effect=["m_id", "s_id", "st_id"]
+        ) as mock_get_cal,
         patch("google_sync.sync_ical_to_google_calendar") as mock_sync,
     ):
         generate_ical._sync_to_google(
             mock_movies_cal,
             mock_shows_cal,
+            mock_streaming_cal,
             movies_cal_id_override="custom_m_id",
             shows_cal_id_override="custom_s_id",
+            streaming_cal_id_override="custom_st_id",
         )
-        assert mock_sync.call_count == 2
+        assert mock_sync.call_count == 3
         mock_get_cal.assert_any_call(mock_service, "Trakt Movies", calendar_id="custom_m_id")
         mock_get_cal.assert_any_call(mock_service, "Trakt TV Shows", calendar_id="custom_s_id")
+        mock_get_cal.assert_any_call(mock_service, "Trakt Streaming", calendar_id="custom_st_id")
+
+
+def test_fetch_movie_streaming_releases():
+    from datetime import UTC, datetime
+    from typing import Any
+
+    cutoff = datetime(2026, 10, 1, tzinfo=UTC)
+    movies: list[dict[str, Any]] = [
+        {"movie": {"title": "Old Released Movie", "released": "2007-06-22", "ids": {"trakt": 1}}},
+        {"movie": {"title": "Old Year Movie", "year": 2010, "ids": {"trakt": 2}}},
+        {"movie": {"title": "No ID Movie", "ids": {}}},
+        {"movie": {"title": "Error Movie", "released": "2026-09-01", "ids": {"trakt": 10}}},
+        {"movie": {"title": "Theatrical Only", "year": 2026, "ids": {"trakt": 20}}},
+        {"movie": {"title": "Digital Movie", "ids": {"trakt": 30}}},
+    ]
+
+    mock_client = MagicMock()
+    mock_client.get_movie_releases.side_effect = [
+        TraktAPIError("API failure"),
+        [{"release_date": "2026-10-01", "release_type": "theatrical"}],
+        [
+            {"release_date": "2026-12-01", "release_type": "digital", "note": None},
+            {"release_date": "2026-12-01", "release_type": "digital", "note": "Max"},
+        ],
+    ]
+
+    streaming_movies = generate_ical._fetch_movie_streaming_releases(
+        mock_client, movies, start_cutoff=cutoff
+    )
+    assert len(streaming_movies) == 1
+    assert streaming_movies[0]["movie"]["title"] == "Digital Movie"
+    assert streaming_movies[0]["released"] == "2026-12-01"
+    assert streaming_movies[0]["note"] == "Max"
+    assert mock_client.get_movie_releases.call_count == 3
 
 
 def test_main(tmp_path):
@@ -138,14 +178,19 @@ def test_main(tmp_path):
     mock_args.sync_google = False
     mock_args.movies_calendar_id = None
     mock_args.shows_calendar_id = None
+    mock_args.streaming_calendar_id = None
     mock_args.movies_output = str(tmp_path / "movies.ics")
     mock_args.shows_output = str(tmp_path / "shows.ics")
+    mock_args.streaming_output = str(tmp_path / "streaming.ics")
     mock_args.output = str(tmp_path / "combined.ics")
 
     mock_client = MagicMock()
     mock_client.get_hidden_show_ids.return_value = set()
     mock_client.get_watchlist.return_value = [
         {"type": "movie", "movie": {"title": "Inception", "ids": {"trakt": 1}}}
+    ]
+    mock_client.get_movie_releases.return_value = [
+        {"release_date": "2026-11-15", "release_type": "digital", "note": "Netflix"}
     ]
     mock_client.get_watched_shows.return_value = []
 
@@ -157,6 +202,7 @@ def test_main(tmp_path):
 
     assert (tmp_path / "movies.ics").exists()
     assert (tmp_path / "shows.ics").exists()
+    assert (tmp_path / "streaming.ics").exists()
     assert (tmp_path / "combined.ics").exists()
 
 
@@ -178,6 +224,10 @@ def test_parse_args():
             "mid123",
             "--shows-calendar-id",
             "sid456",
+            "--streaming-calendar-id",
+            "stid789",
+            "-sto",
+            "custom_streaming.ics",
         ],
     ):
         args = generate_ical.parse_args()
@@ -189,6 +239,8 @@ def test_parse_args():
         assert args.days_back == 45
         assert args.movies_calendar_id == "mid123"
         assert args.shows_calendar_id == "sid456"
+        assert args.streaming_calendar_id == "stid789"
+        assert args.streaming_output == "custom_streaming.ics"
 
 
 def test_add_candidate_show_edge_cases():
@@ -246,6 +298,7 @@ def test_main_verbose_and_sync_google(tmp_path):
     mock_args.sync_google = True
     mock_args.movies_output = str(tmp_path / "movies.ics")
     mock_args.shows_output = str(tmp_path / "shows.ics")
+    mock_args.streaming_output = str(tmp_path / "streaming.ics")
     mock_args.output = str(tmp_path / "combined.ics")
 
     mock_client = MagicMock()
@@ -295,6 +348,8 @@ def test_generate_ical_dunder_main(tmp_path):
                 str(tmp_path / "m.ics"),
                 "-so",
                 str(tmp_path / "s.ics"),
+                "-sto",
+                str(tmp_path / "st.ics"),
                 "-o",
                 str(tmp_path / "c.ics"),
             ],
@@ -305,3 +360,4 @@ def test_generate_ical_dunder_main(tmp_path):
     ):
         runpy.run_path("generate_ical.py", run_name="__main__")
     assert (tmp_path / "m.ics").exists()
+    assert (tmp_path / "st.ics").exists()

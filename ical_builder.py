@@ -3,6 +3,7 @@ iCalendar (.ics) Builder for Trakt Watchlist Movies and TV Shows.
 """
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -75,12 +76,36 @@ def build_shows_calendar(
     )
 
 
+def build_streaming_calendar(
+    streaming_movies: list[dict[str, Any]],
+    start_cutoff: datetime | None = None,
+    calendar_name: str = "Trakt Streaming",
+) -> Calendar:
+    """Build an iCalendar containing only movie streaming/digital release events."""
+    return build_calendar(
+        movies=[],
+        episodes=[],
+        shows_premieres=[],
+        streaming_movies=streaming_movies,
+        start_cutoff=start_cutoff,
+        calendar_name=calendar_name,
+    )
+
+
 DEFAULT_NO_OVERVIEW = "No overview available."
 
 
-def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
-    movie = item.get("movie", item)
-    released_str = movie.get("released")
+def _build_release_event(
+    movie: dict[str, Any],
+    released_str: str | None,
+    start_cutoff: datetime | None,
+    *,
+    emoji: str,
+    title_suffix: str,
+    uid_prefix: str,
+    alarm_verb: str,
+    note: str | None = None,
+) -> Event | None:
     if not released_str:
         return None
 
@@ -91,7 +116,8 @@ def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> 
     event = Event()
     title = movie.get("title", "Untitled Movie")
     year = movie.get("year")
-    summary_title = f"🎬 {title} ({year})" if year else f"🎬 {title}"
+    base_title = f"{emoji} {title} ({year})" if year else f"{emoji} {title}"
+    summary_title = f"{base_title}{title_suffix}"
     event.add("summary", summary_title)
 
     release_d = parse_date(released_str) or release_dt.date()
@@ -103,28 +129,59 @@ def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> 
     overview = movie.get("overview") or DEFAULT_NO_OVERVIEW
 
     desc_parts = [overview]
+    if note:
+        desc_parts.append(f"\nStreaming Note: {note}")
     if slug:
         desc_parts.append(f"\nTrakt: https://og.trakt.tv/movies/{slug}")
 
     event.add("description", "\n".join(desc_parts))
-    event.add("uid", f"trakt-movie-{trakt_id}@trakt-calendar")
+    event.add("uid", f"{uid_prefix}-{trakt_id}@trakt-calendar")
     event.add("dtstamp", datetime.now(UTC))
 
     # Add notifications: Day before release at 9:00 AM & Day of release at 9:00 AM
     alarm_day_before = Alarm()
     alarm_day_before.add("action", "DISPLAY")
-    alarm_day_before.add("description", f"Movie releasing tomorrow: {title}")
+    alarm_day_before.add("description", f"Movie {alarm_verb} tomorrow: {title}")
     alarm_day_before.add("trigger", timedelta(hours=-15))
 
     alarm_same_day = Alarm()
     alarm_same_day.add("action", "DISPLAY")
-    alarm_same_day.add("description", f"Movie releasing today: {title}")
+    alarm_same_day.add("description", f"Movie {alarm_verb} today: {title}")
     alarm_same_day.add("trigger", timedelta(hours=9))
 
     event.add_component(alarm_day_before)
     event.add_component(alarm_same_day)
 
     return event
+
+
+def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
+    movie = item.get("movie", item)
+    return _build_release_event(
+        movie=movie,
+        released_str=movie.get("released"),
+        start_cutoff=start_cutoff,
+        emoji="🎬",
+        title_suffix="",
+        uid_prefix="trakt-movie",
+        alarm_verb="releasing",
+    )
+
+
+def _create_streaming_event(item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
+    movie = item.get("movie", item)
+    released_str = item.get("released") or item.get("release_date") or movie.get("released")
+    note = item.get("note") or movie.get("note")
+    return _build_release_event(
+        movie=movie,
+        released_str=released_str,
+        start_cutoff=start_cutoff,
+        emoji="🍿",
+        title_suffix=" (Streaming)",
+        uid_prefix="trakt-streaming",
+        alarm_verb="streaming",
+        note=note,
+    )
 
 
 def _safe_runtime(val: Any, default: int) -> int:
@@ -222,10 +279,25 @@ def _create_premiere_event(
     return event
 
 
+def _add_events(
+    cal: Calendar,
+    items: list[dict[str, Any]] | None,
+    event_builder: Callable[[dict[str, Any], datetime | None], Event | None],
+    start_cutoff: datetime | None,
+) -> None:
+    if not items:
+        return
+    for item in items:
+        ev = event_builder(item, start_cutoff)
+        if ev:
+            cal.add_component(ev)
+
+
 def build_calendar(
     movies: list[dict[str, Any]],
     episodes: list[dict[str, Any]],
     shows_premieres: list[dict[str, Any]] | None = None,
+    streaming_movies: list[dict[str, Any]] | None = None,
     start_cutoff: datetime | None = None,
     calendar_name: str = "Trakt Watchlist",
 ) -> Calendar:
@@ -239,20 +311,9 @@ def build_calendar(
     cal.add("x-wr-timezone", "UTC")
     cal.add("calscale", "GREGORIAN")
 
-    for item in movies:
-        ev = _create_movie_event(item, start_cutoff)
-        if ev:
-            cal.add_component(ev)
-
-    for ep_info in episodes:
-        ev = _create_episode_event(ep_info, start_cutoff)
-        if ev:
-            cal.add_component(ev)
-
-    if shows_premieres:
-        for show_item in shows_premieres:
-            ev = _create_premiere_event(show_item, start_cutoff)
-            if ev:
-                cal.add_component(ev)
+    _add_events(cal, movies, _create_movie_event, start_cutoff)
+    _add_events(cal, episodes, _create_episode_event, start_cutoff)
+    _add_events(cal, shows_premieres, _create_premiere_event, start_cutoff)
+    _add_events(cal, streaming_movies, _create_streaming_event, start_cutoff)
 
     return cal
