@@ -148,6 +148,7 @@ def test_fetch_movie_streaming_releases():
         {"movie": {"title": "Error Movie", "released": "2026-09-01", "ids": {"trakt": 10}}},
         {"movie": {"title": "Theatrical Only", "year": 2026, "ids": {"trakt": 20}}},
         {"movie": {"title": "Digital Movie", "ids": {"trakt": 30}}},
+        {"movie": {"title": "Physical & TV Movie", "ids": {"trakt": 40}}},
     ]
 
     mock_client = MagicMock()
@@ -158,16 +159,24 @@ def test_fetch_movie_streaming_releases():
             {"release_date": "2026-12-01", "release_type": "digital", "note": None},
             {"release_date": "2026-12-01", "release_type": "digital", "note": "Max"},
         ],
+        [
+            {"release_date": "2026-12-15", "release_type": "physical", "note": "4K UHD"},
+            {"release_date": "2026-11-25", "release_type": "tv", "note": "HBO"},
+        ],
     ]
 
     streaming_movies = generate_ical._fetch_movie_streaming_releases(
         mock_client, movies, start_cutoff=cutoff
     )
-    assert len(streaming_movies) == 1
+    assert len(streaming_movies) == 2
     assert streaming_movies[0]["movie"]["title"] == "Digital Movie"
     assert streaming_movies[0]["released"] == "2026-12-01"
     assert streaming_movies[0]["note"] == "Max"
-    assert mock_client.get_movie_releases.call_count == 3
+    assert streaming_movies[1]["movie"]["title"] == "Physical & TV Movie"
+    assert streaming_movies[1]["released"] == "2026-11-25"
+    assert streaming_movies[1]["note"] == "HBO"
+    assert "releases" in movies[5]["movie"]
+    assert mock_client.get_movie_releases.call_count == 4
 
 
 def test_main(tmp_path):

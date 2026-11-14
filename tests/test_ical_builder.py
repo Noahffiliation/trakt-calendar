@@ -433,3 +433,106 @@ def test_build_streaming_calendar_and_events():
     )
     combined_events = [c for c in combined.subcomponents if c.name == "VEVENT"]
     assert len(combined_events) == 1
+
+
+def test_episode_and_premiere_earliest_available_time():
+    from ical_builder import _create_episode_event, _create_premiere_event
+
+    # Romelia War Chronicle S1E7: streams Nov 14, airs Nov 16
+    romelia_ep = {
+        "show": {"title": "Romelia War Chronicle", "ids": {"trakt": 307656, "slug": "romelia"}},
+        "episode": {
+            "season": 1,
+            "number": 7,
+            "title": "Episode 7",
+            "released": "2026-11-14",
+            "first_aired": "2026-11-16T14:30:00.000Z",
+            "effective_release_date": "2026-11-14T14:30:00.000Z",
+        },
+    }
+    ev_romelia = _create_episode_event(romelia_ep, start_cutoff=None)
+    assert ev_romelia is not None
+    assert ev_romelia.get("dtstart").dt == datetime(2026, 11, 14, 14, 30, tzinfo=UTC)
+
+    # Overgeared S1E8: streams Nov 15, airs Nov 20
+    overgeared_ep = {
+        "show": {"title": "Overgeared", "ids": {"trakt": 319961, "slug": "overgeared"}},
+        "episode": {
+            "season": 1,
+            "number": 8,
+            "title": "Episode #1.8",
+            "released": "2026-11-15",
+            "first_aired": "2026-11-20T14:30:00.000Z",
+            "effective_release_date": "2026-11-15T00:00:00.000Z",
+        },
+    }
+    ev_overgeared = _create_episode_event(overgeared_ep, start_cutoff=None)
+    assert ev_overgeared is not None
+    assert ev_overgeared.get("dtstart").dt == datetime(2026, 11, 15, 0, 0, tzinfo=UTC)
+
+    # Fallback to 'released' when effective_release_date and first_aired are absent
+    released_only_ep = {
+        "show": {"title": "Released Only Show"},
+        "episode": {"season": 1, "number": 1, "released": "2026-11-14"},
+    }
+    ev_rel_only = _create_episode_event(released_only_ep, start_cutoff=None)
+    assert ev_rel_only is not None
+    assert ev_rel_only.get("dtstart").dt == datetime(2026, 11, 14, 0, 0, tzinfo=UTC)
+
+    # Premiere using earliest effective_release_date
+    premiere_item = {
+        "show": {
+            "title": "Early Stream Premiere",
+            "first_aired": "2026-11-20T14:30:00.000Z",
+            "effective_release_date": "2026-11-15T14:30:00.000Z",
+        }
+    }
+    ev_prem = _create_premiere_event(premiere_item, start_cutoff=None)
+    assert ev_prem is not None
+    assert ev_prem.get("dtstart").dt == datetime(2026, 11, 15, 14, 30, tzinfo=UTC)
+
+
+def test_movie_earliest_release_excluding_premiere_and_limited():
+    from datetime import date
+
+    from ical_builder import _create_movie_event
+
+    # Movie where theatrical/digital in releases is earlier than movie['released'],
+    # while 'premiere' and 'limited' are even earlier but excluded.
+    movie_item = {
+        "movie": {
+            "title": "Festival Movie",
+            "year": 2026,
+            "released": "2026-12-10",
+            "ids": {"trakt": 888},
+            "releases": [
+                {"release_date": "2026-09-01", "release_type": "premiere"},
+                {"release_date": "2026-10-01", "release_type": "limited"},
+                {"release_date": "2026-11-15", "release_type": "theatrical"},
+                {"release_date": "2026-12-20", "release_type": "digital"},
+            ],
+        }
+    }
+    ev = _create_movie_event(movie_item, start_cutoff=None)
+    assert ev is not None
+    assert ev.get("dtstart").dt == date(2026, 11, 15)
+
+    # Movie without movie['released'], falling back to valid release date in releases
+    movie_no_base_rel = {
+        "movie": {
+            "title": "Unreleased Base Movie",
+            "year": 2026,
+            "ids": {"trakt": 889},
+        },
+        "releases": [
+            {"release_date": "2026-10-01", "release_type": "premiere"},
+            {"release_date": "2026-11-20", "release_type": "digital"},
+        ],
+    }
+    ev2 = _create_movie_event(movie_no_base_rel, start_cutoff=None)
+    assert ev2 is not None
+    assert ev2.get("dtstart").dt == date(2026, 11, 20)
+
+    # Movie with invalid date strings returns None
+    movie_invalid = {"movie": {"title": "Invalid Date", "released": "not-a-date"}}
+    assert _create_movie_event(movie_invalid, start_cutoff=None) is None

@@ -93,6 +93,46 @@ def build_streaming_calendar(
 
 
 DEFAULT_NO_OVERVIEW = "No overview available."
+EXCLUDED_MOVIE_RELEASE_TYPES = ("premiere", "limited")
+
+
+def _get_earliest_movie_release(item: dict[str, Any], movie: dict[str, Any]) -> str | None:
+    """Return the earliest release date string across movie['released'] and valid release dates."""
+    candidate_strs: list[str] = []
+    for base_str in (movie.get("released"), movie.get("effective_release_date")):
+        if base_str:
+            candidate_strs.append(str(base_str))
+
+    releases = item.get("releases") or movie.get("releases") or []
+    for rel in releases:
+        rel_date = rel.get("release_date")
+        rel_type = rel.get("release_type")
+        if rel_date and rel_type not in EXCLUDED_MOVIE_RELEASE_TYPES:
+            candidate_strs.append(str(rel_date))
+
+    valid_candidates: list[tuple[datetime, str]] = []
+    for c_str in candidate_strs:
+        dt = parse_datetime(c_str)
+        if dt is not None:
+            valid_candidates.append((dt, c_str))
+
+    if not valid_candidates:
+        return movie.get("released")
+
+    valid_candidates.sort(key=lambda pair: pair[0])
+    return valid_candidates[0][1]
+
+
+def _get_earliest_air_datetime(item_dict: dict[str, Any]) -> datetime | None:
+    """Return the earliest available UTC datetime from effective_release_date, first_aired, or released."""
+    candidates: list[datetime] = []
+    for field in ("effective_release_date", "first_aired"):
+        dt = parse_datetime(item_dict.get(field))
+        if dt is not None:
+            candidates.append(dt)
+    if candidates:
+        return min(candidates)
+    return parse_datetime(item_dict.get("released"))
 
 
 def _build_release_event(
@@ -159,7 +199,7 @@ def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> 
     movie = item.get("movie", item)
     return _build_release_event(
         movie=movie,
-        released_str=movie.get("released"),
+        released_str=_get_earliest_movie_release(item, movie),
         start_cutoff=start_cutoff,
         emoji="🎬",
         title_suffix="",
@@ -200,11 +240,7 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
     show = ep_info.get("show", {})
     episode = ep_info.get("episode", {})
 
-    first_aired_str = episode.get("first_aired")
-    if not first_aired_str:
-        return None
-
-    air_dt = parse_datetime(first_aired_str)
+    air_dt = _get_earliest_air_datetime(episode)
     if not air_dt or (start_cutoff and air_dt < start_cutoff):
         return None
 
@@ -247,11 +283,7 @@ def _create_premiere_event(
     show_item: dict[str, Any], start_cutoff: datetime | None
 ) -> Event | None:
     show = show_item.get("show", show_item)
-    first_aired_str = show.get("first_aired")
-    if not first_aired_str:
-        return None
-
-    air_dt = parse_datetime(first_aired_str)
+    air_dt = _get_earliest_air_datetime(show)
     if not air_dt or (start_cutoff and air_dt < start_cutoff):
         return None
 

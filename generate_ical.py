@@ -278,6 +278,9 @@ def _is_recent_or_upcoming_movie(movie: dict[str, Any], start_cutoff: datetime |
     return True
 
 
+HOME_RELEASE_TYPES = ("digital", "streaming", "physical", "tv")
+
+
 def _fetch_movie_streaming_releases(
     client: TraktClient,
     movies: list[dict[str, Any]],
@@ -302,16 +305,18 @@ def _fetch_movie_streaming_releases(
             logger.warning(f"Could not fetch streaming releases for '{movie_title}': {e}")
             continue
 
-        digital_releases = [
+        movie["releases"] = releases
+
+        home_releases = [
             r
             for r in releases
-            if r.get("release_type") in ("digital", "streaming") and r.get("release_date")
+            if r.get("release_type") in HOME_RELEASE_TYPES and r.get("release_date")
         ]
-        if not digital_releases:
+        if not home_releases:
             continue
 
-        digital_releases.sort(key=lambda r: (str(r.get("release_date")), 0 if r.get("note") else 1))
-        chosen = digital_releases[0]
+        home_releases.sort(key=lambda r: (str(r.get("release_date")), 0 if r.get("note") else 1))
+        chosen = home_releases[0]
         streaming_movies.append(
             {
                 "movie": movie,
