@@ -281,7 +281,7 @@ def test_fetch_show_episodes_error_and_missing_id():
     mock_client = MagicMock()
     mock_client.get_show_seasons_with_episodes.side_effect = TraktAPIError("Rate limited")
 
-    candidate_shows = [
+    candidate_shows: list[dict] = [
         {"ids": {}},  # Missing trakt id
         {"ids": {"trakt": 99}, "title": "Failing Show"},
     ]
@@ -366,7 +366,82 @@ def test_generate_ical_dunder_main(tmp_path):
         patch("trakt_api.TraktClient.get_watchlist", return_value=[]),
         patch("trakt_api.TraktClient.get_hidden_show_ids", return_value=set()),
         patch("trakt_api.TraktClient.get_watched_shows", return_value=[]),
+        patch("trakt_api.TraktClient.get_watched_movies", return_value=[]),
     ):
         runpy.run_path("generate_ical.py", run_name="__main__")
     assert (tmp_path / "m.ics").exists()
     assert (tmp_path / "st.ics").exists()
+
+
+def test_watched_episodes_and_movies_categorization_and_fetching():
+    watchlist_items = [
+        {"type": "movie", "movie": {"title": "Movie 1", "ids": {"trakt": 100}}},
+        {"type": "movie", "movie": {"title": "Unwatched Movie", "ids": {"trakt": 101}}},
+        {"type": "show", "show": {"title": "Show 1", "ids": {"trakt": 10}}},
+        {
+            "type": "episode",
+            "show": {"title": "Show 2", "ids": {"trakt": 20}},
+            "episode": {"season": 1, "number": 2},
+        },
+    ]
+
+    mock_client = MagicMock()
+    mock_client.get_watched_shows.return_value = [
+        {
+            "reset_at": "2026-06-01T00:00:00.000Z",
+            "show": {"title": "Show 1", "ids": {"trakt": 10}},
+            "seasons": [
+                {"number": None, "episodes": [{"number": 1, "plays": 1}]},
+                {
+                    "number": 1,
+                    "episodes": [
+                        {
+                            "number": 1,
+                            "plays": 1,
+                            "last_watched_at": "2026-05-01T00:00:00.000Z",
+                        },  # Before reset
+                        {
+                            "number": 2,
+                            "plays": 1,
+                            "last_watched_at": "2026-07-01T00:00:00.000Z",
+                        },  # After reset
+                        {"number": 3, "plays": 0},  # Zero plays
+                        {"number": None, "plays": 1},  # Missing ep number
+                    ],
+                },
+            ],
+        },
+        {
+            "show": {"title": "Show 2", "ids": {"trakt": 20}},
+            "seasons": [{"number": 1, "episodes": [{"number": 2, "plays": 1}]}],
+        },
+    ]
+    mock_client.get_watched_movies.return_value = [
+        {"plays": 1, "movie": {"title": "Movie 1", "ids": {"trakt": 100}}},  # Already in watchlist
+        {"plays": 1, "movie": {"title": "Movie 2", "ids": {"trakt": 102}}},  # Only in watched
+        {"plays": 0, "movie": {"title": "Unplayed", "ids": {"trakt": 103}}},  # Zero plays
+        {"plays": 1, "movie": {"title": "No ID", "ids": {}}},  # Missing ID
+    ]
+
+    movies, shows, direct_eps = generate_ical._categorize_items(
+        watchlist_items, set(), mock_client, include_watched=True
+    )
+
+    assert len(movies) == 3
+    assert movies[0].get("watched") is True
+    assert movies[1].get("watched") is None
+    assert movies[2].get("watched") is True
+    assert movies[2]["movie"]["title"] == "Movie 2"
+
+    assert direct_eps[0].get("watched") is True
+    assert shows[0]["watched_episodes"] == {(1, 2)}
+
+    mock_client.get_show_seasons_with_episodes.side_effect = [
+        [{"episodes": [{"season": 1, "number": 1}, {"season": 1, "number": 2}]}],
+        [],
+    ]
+    episodes, premieres = generate_ical._fetch_show_episodes(mock_client, shows, direct_eps)
+    assert episodes[0]["watched"] is True  # Direct ep S1E2 of Show 2
+    assert episodes[1]["watched"] is False  # Show 1 S1E1 (before reset)
+    assert episodes[2]["watched"] is True  # Show 1 S1E2 (after reset)
+    assert premieres[0]["watched"] is True

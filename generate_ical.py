@@ -185,9 +185,99 @@ def _add_candidate_show(
     return False
 
 
+def _is_episode_watched_after_reset(ep: dict[str, Any], reset_dt: datetime | None) -> bool:
+    if ep.get("number") is None or ep.get("plays", 1) <= 0:
+        return False
+    if reset_dt is None:
+        return True
+    ep_watched_dt = parse_datetime(ep.get("last_watched_at"))
+    return ep_watched_dt is None or ep_watched_dt >= reset_dt
+
+
+def _extract_watched_episodes_for_show(watched_item: dict[str, Any]) -> set[tuple[int, int]]:
+    """Extract a set of watched (season_number, episode_number) tuples for a show from Trakt watched data."""
+    watched_eps: set[tuple[int, int]] = set()
+    reset_dt = parse_datetime(watched_item.get("reset_at"))
+    for season in watched_item.get("seasons", []):
+        season_num = season.get("number")
+        if season_num is None:
+            continue
+        for ep in season.get("episodes", []):
+            if _is_episode_watched_after_reset(ep, reset_dt):
+                watched_eps.add((season_num, ep["number"]))
+    return watched_eps
+
+
+def _apply_watched_shows(
+    watched_shows_data: list[dict[str, Any]],
+    hidden_show_ids: set[int],
+    processed_show_ids: set[int],
+    candidate_shows: list[dict[str, Any]],
+    direct_episodes: list[dict[str, Any]],
+) -> int:
+    watched_by_show: dict[int, set[tuple[int, int]]] = {}
+    added_count = 0
+
+    for item in watched_shows_data:
+        show = item.get("show", item)
+        show_id = show.get("ids", {}).get("trakt")
+        if show_id:
+            watched_by_show.setdefault(show_id, set()).update(
+                _extract_watched_episodes_for_show(item)
+            )
+        if _add_candidate_show(show, hidden_show_ids, processed_show_ids, candidate_shows):
+            added_count += 1
+
+    for show in candidate_shows:
+        show_id = show.get("ids", {}).get("trakt")
+        if show_id in watched_by_show:
+            show["watched_episodes"] = watched_by_show[show_id]
+
+    for ep_item in direct_episodes:
+        show_id = ep_item.get("show", {}).get("ids", {}).get("trakt")
+        ep = ep_item.get("episode", {})
+        if (
+            show_id in watched_by_show
+            and (ep.get("season"), ep.get("number")) in watched_by_show[show_id]
+        ):
+            ep_item["watched"] = True
+
+    return added_count
+
+
+def _merge_watched_movies(
+    movies: list[dict[str, Any]], watched_movies_data: list[dict[str, Any]]
+) -> int:
+    movies_by_id: dict[int, dict[str, Any]] = {}
+    for item in movies:
+        movie_id = item.get("movie", item).get("ids", {}).get("trakt")
+        if movie_id:
+            movies_by_id[movie_id] = item
+
+    added_count = 0
+    for item in watched_movies_data:
+        if item.get("plays", 1) <= 0:
+            continue
+        movie = item.get("movie", item)
+        movie_id = movie.get("ids", {}).get("trakt")
+        if not movie_id:
+            continue
+        if movie_id in movies_by_id:
+            existing = movies_by_id[movie_id]
+            existing["watched"] = True
+            existing.get("movie", existing)["watched"] = True
+        else:
+            watched_movie = {**movie, "watched": True}
+            entry = {"type": "movie", "movie": watched_movie, "watched": True}
+            movies.append(entry)
+            movies_by_id[movie_id] = entry
+            added_count += 1
+    return added_count
+
+
 def _categorize_items(
     watchlist_items: list, hidden_show_ids: set, client: TraktClient, include_watched: bool
-):
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     movies: list[dict[str, Any]] = []
     candidate_shows: list[dict[str, Any]] = []
     direct_episodes: list[dict[str, Any]] = []
@@ -207,16 +297,19 @@ def _categorize_items(
     if include_watched:
         logger.info("Fetching shows with watched progress...")
         watched_shows_data = client.get_watched_shows()
-        added_count = len(
-            [
-                item
-                for item in watched_shows_data
-                if _add_candidate_show(
-                    item.get("show", item), hidden_show_ids, processed_show_ids, candidate_shows
-                )
-            ]
+        added_count = _apply_watched_shows(
+            watched_shows_data,
+            hidden_show_ids,
+            processed_show_ids,
+            candidate_shows,
+            direct_episodes,
         )
         logger.info(f"Added {added_count} show(s) in progress (excluding dropped/hidden shows).")
+
+        logger.info("Fetching watched movies...")
+        watched_movies_data = client.get_watched_movies()
+        added_movies = _merge_watched_movies(movies, watched_movies_data)
+        logger.info(f"Added {added_movies} watched movie(s).")
 
     logger.info(
         f"Categorized total: {len(movies)} movie(s), {len(candidate_shows)} show(s) to check, {len(direct_episodes)} direct episode(s)."
@@ -224,19 +317,37 @@ def _categorize_items(
     return movies, candidate_shows, direct_episodes
 
 
-def _fetch_show_episodes(client: TraktClient, candidate_shows: list, direct_episodes: list):
-    episodes_to_include = []
-    standalone_premieres = []
+def _is_episode_watched(
+    ep: dict[str, Any], watched_eps: set[tuple[int, int]], item_watched: bool = False
+) -> bool:
+    return bool(
+        item_watched or ep.get("watched") or (ep.get("season"), ep.get("number")) in watched_eps
+    )
+
+
+def _fetch_show_episodes(
+    client: TraktClient, candidate_shows: list, direct_episodes: list
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    episodes_to_include: list[dict[str, Any]] = []
+    standalone_premieres: list[dict[str, Any]] = []
 
     for item in direct_episodes:
+        show = item.get("show", {})
+        ep = item.get("episode", {})
+        watched_eps = show.get("watched_episodes", set())
         episodes_to_include.append(
-            {"show": item.get("show", {}), "episode": item.get("episode", {})}
+            {
+                "show": show,
+                "episode": ep,
+                "watched": _is_episode_watched(ep, watched_eps, bool(item.get("watched"))),
+            }
         )
 
     for show in candidate_shows:
         show_id = show.get("ids", {}).get("trakt")
         show_title = show.get("title", f"Show {show_id}")
         show_status = show.get("status")
+        watched_eps = show.get("watched_episodes", set())
 
         if not show_id:
             continue
@@ -250,11 +361,19 @@ def _fetch_show_episodes(client: TraktClient, candidate_shows: list, direct_epis
         found_episodes = 0
         for season in seasons:
             for ep in season.get("episodes", []):
-                episodes_to_include.append({"show": show, "episode": ep})
+                episodes_to_include.append(
+                    {
+                        "show": show,
+                        "episode": ep,
+                        "watched": _is_episode_watched(ep, watched_eps),
+                    }
+                )
                 found_episodes += 1
 
         if found_episodes == 0:
-            standalone_premieres.append({"show": show})
+            standalone_premieres.append(
+                {"show": show, "watched": bool(show.get("watched") or watched_eps)}
+            )
 
     return episodes_to_include, standalone_premieres
 
@@ -322,6 +441,7 @@ def _fetch_movie_streaming_releases(
                 "movie": movie,
                 "released": chosen["release_date"],
                 "note": chosen.get("note"),
+                "watched": bool(item.get("watched") or movie.get("watched")),
             }
         )
 

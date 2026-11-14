@@ -634,3 +634,19 @@ def test_get_movie_releases_caching_and_errors(tmp_path):
         pytest.raises(TraktAPIError),
     ):
         client.get_movie_releases(500, country="us")
+
+
+@patch.object(requests.Session, "get")
+def test_get_watched_movies(mock_get):
+    client = TraktClient(client_id="test_id", username="johndoe")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = [
+        {"plays": 1, "movie": {"title": "Watched Movie", "ids": {"trakt": 777}}}
+    ]
+    mock_get.return_value = mock_resp
+
+    watched = client.get_watched_movies()
+    assert len(watched) == 1
+    assert watched[0]["movie"]["ids"]["trakt"] == 777

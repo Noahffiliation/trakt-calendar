@@ -536,3 +536,50 @@ def test_movie_earliest_release_excluding_premiere_and_limited():
     # Movie with invalid date strings returns None
     movie_invalid = {"movie": {"title": "Invalid Date", "released": "not-a-date"}}
     assert _create_movie_event(movie_invalid, start_cutoff=None) is None
+
+
+def test_watched_checkmark_emoji_events():
+    from ical_builder import (
+        _create_episode_event,
+        _create_movie_event,
+        _create_premiere_event,
+        _create_streaming_event,
+    )
+
+    watched_movie = {
+        "movie": {"title": "Watched Film", "year": 2026, "released": "2026-11-10"},
+        "watched": True,
+    }
+    ev_movie = _create_movie_event(watched_movie, start_cutoff=None)
+    assert ev_movie is not None
+    assert str(ev_movie.get("summary")) == "✅ Watched Film (2026)"
+
+    watched_stream = {
+        "movie": {"title": "Watched Film", "year": 2026, "watched": True},
+        "released": "2026-11-20",
+    }
+    ev_stream = _create_streaming_event(watched_stream, start_cutoff=None)
+    assert ev_stream is not None
+    assert str(ev_stream.get("summary")) == "✅ Watched Film (2026) (Streaming)"
+
+    watched_ep = {
+        "show": {"title": "Watched Show"},
+        "episode": {
+            "season": 1,
+            "number": 2,
+            "title": "Episode Two",
+            "first_aired": "2026-11-10T20:00:00.000Z",
+        },
+        "watched": True,
+    }
+    ev_ep = _create_episode_event(watched_ep, start_cutoff=None)
+    assert ev_ep is not None
+    assert str(ev_ep.get("summary")) == "✅ Watched Show - S01E02 - Episode Two"
+
+    watched_prem = {
+        "show": {"title": "Watched Premiere", "first_aired": "2026-11-10T20:00:00.000Z"},
+        "watched": True,
+    }
+    ev_prem = _create_premiere_event(watched_prem, start_cutoff=None)
+    assert ev_prem is not None
+    assert str(ev_prem.get("summary")) == "✅ Watched Premiere (Series Premiere)"

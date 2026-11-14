@@ -382,6 +382,11 @@ class TraktClient:
         endpoint = self._get_user_endpoint("sync/watched/shows", "watched/shows")
         return self._fetch_paginated_list(endpoint, raise_on_error=False)
 
+    def get_watched_movies(self) -> list[dict[str, Any]]:
+        """Fetch watched movies for the user with pagination."""
+        endpoint = self._get_user_endpoint("sync/watched/movies", "watched/movies")
+        return self._fetch_paginated_list(endpoint, raise_on_error=False)
+
     def get_hidden_show_ids(self) -> set[int]:
         """Fetch set of show Trakt IDs that have been dropped or hidden by the user."""
         if not self.access_token:

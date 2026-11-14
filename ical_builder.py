@@ -197,11 +197,12 @@ def _build_release_event(
 
 def _create_movie_event(item: dict[str, Any], start_cutoff: datetime | None) -> Event | None:
     movie = item.get("movie", item)
+    is_watched = bool(item.get("watched") or movie.get("watched"))
     return _build_release_event(
         movie=movie,
         released_str=_get_earliest_movie_release(item, movie),
         start_cutoff=start_cutoff,
-        emoji="🎬",
+        emoji="✅" if is_watched else "🎬",
         title_suffix="",
         uid_prefix="trakt-movie",
         alarm_verb="releasing",
@@ -212,11 +213,12 @@ def _create_streaming_event(item: dict[str, Any], start_cutoff: datetime | None)
     movie = item.get("movie", item)
     released_str = item.get("released") or item.get("release_date") or movie.get("released")
     note = item.get("note") or movie.get("note")
+    is_watched = bool(item.get("watched") or movie.get("watched"))
     return _build_release_event(
         movie=movie,
         released_str=released_str,
         start_cutoff=start_cutoff,
-        emoji="🍿",
+        emoji="✅" if is_watched else "🍿",
         title_suffix=" (Streaming)",
         uid_prefix="trakt-streaming",
         alarm_verb="streaming",
@@ -251,8 +253,10 @@ def _create_episode_event(ep_info: dict[str, Any], start_cutoff: datetime | None
     raw_ep = episode.get("number")
     ep_num = 0 if raw_ep is None else raw_ep
     ep_title = episode.get("title") or f"Episode {ep_num}"
+    is_watched = bool(ep_info.get("watched") or episode.get("watched"))
+    emoji = "✅" if is_watched else "📺"
 
-    summary = f"📺 {show_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
+    summary = f"{emoji} {show_title} - S{season_num:02d}E{ep_num:02d} - {ep_title}"
     event.add("summary", summary)
 
     event.add("dtstart", air_dt)
@@ -289,7 +293,9 @@ def _create_premiere_event(
 
     event = Event()
     show_title = show.get("title", "Unknown Show")
-    summary = f"📺 {show_title} (Series Premiere)"
+    is_watched = bool(show_item.get("watched") or show.get("watched"))
+    emoji = "✅" if is_watched else "📺"
+    summary = f"{emoji} {show_title} (Series Premiere)"
     event.add("summary", summary)
 
     event.add("dtstart", air_dt)
