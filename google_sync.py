@@ -151,8 +151,8 @@ def get_or_create_calendar(
     return cal_id
 
 
-def _event_has_changed(existing_event: dict[str, Any], new_body: dict[str, Any]) -> bool:
-    """Check if meaningful event attributes (status, summary, description, start, end) have changed."""
+def _event_content_changed(existing_event: dict[str, Any], new_body: dict[str, Any]) -> bool:
+    """Check if core event content (status, summary, description, start, end) has changed."""
     existing_status = existing_event.get("status") or "confirmed"
     new_status = new_body.get("status") or "confirmed"
     if existing_status != new_status:
@@ -176,6 +176,13 @@ def _event_has_changed(existing_event: dict[str, Any], new_body: dict[str, Any])
     ) != new_end.get("dateTime")
 
 
+def _event_has_changed(existing_event: dict[str, Any], new_body: dict[str, Any]) -> bool:
+    """Check if meaningful event attributes (content or leftover attendees) have changed."""
+    if bool(existing_event.get("attendees")) != bool(new_body.get("attendees")):
+        return True
+    return _event_content_changed(existing_event, new_body)
+
+
 def _upsert_single_event(
     service: Any,
     calendar_id: str,
@@ -184,7 +191,9 @@ def _upsert_single_event(
 ) -> bool:
     """
     Inserts or patches an event in Google Calendar, returning True if updated, False if created.
-    Ensures 'status': 'confirmed' so tombstoned/cancelled events are revived.
+    Ensures 'status': 'confirmed' so tombstoned/cancelled events are revived, and silently clears
+    any leftover 'attendees' so events do not trigger RSVP invitation emails while preserving
+    shared-calendar update notifications.
     Uses num_retries=5 for automatic exponential backoff on 403/429 rate limit errors.
     """
     body_with_status = dict(event_body)
@@ -192,15 +201,31 @@ def _upsert_single_event(
 
     if existing_event:
         event_id = existing_event["id"]
+        has_leftover_attendees = bool(existing_event.get("attendees"))
+        content_changed = _event_content_changed(existing_event, body_with_status)
+
+        if has_leftover_attendees:
+            service.events().patch(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body={"attendees": []},
+                sendUpdates="none",
+            ).execute(num_retries=5)
+            if not content_changed:
+                return True
+
         service.events().patch(
-            calendarId=calendar_id, eventId=event_id, body=body_with_status
+            calendarId=calendar_id,
+            eventId=event_id,
+            body=body_with_status,
         ).execute(num_retries=5)
         return True
 
     try:
-        service.events().insert(calendarId=calendar_id, body=body_with_status).execute(
-            num_retries=5
-        )
+        service.events().insert(
+            calendarId=calendar_id,
+            body=body_with_status,
+        ).execute(num_retries=5)
         return False
     except HttpError as error:
         if "duplicate" in str(error).lower() or "already exists" in str(error).lower():
@@ -215,6 +240,7 @@ def _upsert_single_event(
                 .get("items", [])
             )
             if existing_list:
+                body_with_status.setdefault("attendees", [])
                 service.events().patch(
                     calendarId=calendar_id,
                     eventId=existing_list[0]["id"],

@@ -65,6 +65,12 @@ def test_get_watched_shows(mock_get):
     watched = client.get_watched_shows()
     assert len(watched) == 1
     assert watched[0]["show"]["ids"]["trakt"] == 999
+    mock_get.assert_called_once_with(
+        "https://api.trakt.tv/users/johndoe/watched/shows",
+        headers=client._get_headers(),
+        params={"extended": "full,progress", "specials": "true", "page": 1, "limit": 100},
+        timeout=30,
+    )
 
 
 @patch.object(requests.Session, "get")

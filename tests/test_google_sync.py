@@ -197,6 +197,21 @@ def test_event_has_changed_helper():
         is True
     )
 
+    # Leftover attendees present on existing event
+    assert (
+        google_sync._event_has_changed(
+            {**base_existing, "attendees": [{"email": "user@example.com"}]},
+            {
+                "status": "confirmed",
+                "summary": "Movie A",
+                "description": "Desc A",
+                "start": {"date": "2026-08-01"},
+                "end": {"date": "2026-08-02"},
+            },
+        )
+        is True
+    )
+
     # Summary changed
     assert (
         google_sync._event_has_changed(
@@ -257,7 +272,7 @@ def test_event_has_changed_helper():
 def test_upsert_single_event_update_and_insert():
     mock_service = MagicMock()
 
-    # Test update existing event via patch
+    # Test update existing event via patch (content changed, no leftover attendees)
     is_update = google_sync._upsert_single_event(
         mock_service, "cal_id", {"summary": "New Summary"}, existing_event={"id": "ev_1"}
     )
@@ -268,13 +283,62 @@ def test_upsert_single_event_update_and_insert():
         body={"summary": "New Summary", "status": "confirmed"},
     )
 
+    # Test silently clearing leftover attendees when content has NOT changed
+    mock_service.events().patch.reset_mock()
+    is_update_cleanup = google_sync._upsert_single_event(
+        mock_service,
+        "cal_id",
+        {"summary": "Same Summary"},
+        existing_event={
+            "id": "ev_2",
+            "summary": "Same Summary",
+            "status": "confirmed",
+            "attendees": [{"email": "user@example.com"}],
+        },
+    )
+    assert is_update_cleanup is True
+    mock_service.events().patch.assert_called_once_with(
+        calendarId="cal_id",
+        eventId="ev_2",
+        body={"attendees": []},
+        sendUpdates="none",
+    )
+
+    # Test clearing leftover attendees AND applying content update
+    mock_service.events().patch.reset_mock()
+    is_update_both = google_sync._upsert_single_event(
+        mock_service,
+        "cal_id",
+        {"summary": "Updated Summary"},
+        existing_event={
+            "id": "ev_3",
+            "summary": "Old Summary",
+            "status": "confirmed",
+            "attendees": [{"email": "user@example.com"}],
+        },
+    )
+    assert is_update_both is True
+    assert mock_service.events().patch.call_count == 2
+    mock_service.events().patch.assert_any_call(
+        calendarId="cal_id",
+        eventId="ev_3",
+        body={"attendees": []},
+        sendUpdates="none",
+    )
+    mock_service.events().patch.assert_called_with(
+        calendarId="cal_id",
+        eventId="ev_3",
+        body={"summary": "Updated Summary", "status": "confirmed"},
+    )
+
     # Test insert new event
     is_update_2 = google_sync._upsert_single_event(
         mock_service, "cal_id", {"summary": "Brand New"}, existing_event=None
     )
     assert is_update_2 is False
     mock_service.events().insert.assert_called_with(
-        calendarId="cal_id", body={"summary": "Brand New", "status": "confirmed"}
+        calendarId="cal_id",
+        body={"summary": "Brand New", "status": "confirmed"},
     )
 
 
@@ -297,7 +361,12 @@ def test_upsert_single_event_409_duplicate_fallback():
     mock_service.events().patch.assert_called_with(
         calendarId="cal_id",
         eventId="recovered_id",
-        body={"summary": "Conflict Show", "iCalUID": "trakt-123", "status": "confirmed"},
+        body={
+            "summary": "Conflict Show",
+            "iCalUID": "trakt-123",
+            "status": "confirmed",
+            "attendees": [],
+        },
     )
 
 

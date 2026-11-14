@@ -341,7 +341,10 @@ class TraktClient:
         raise ValueError("Either access_token or username must be provided.")
 
     def _fetch_paginated_list(
-        self, endpoint: str, raise_on_error: bool = True
+        self,
+        endpoint: str,
+        raise_on_error: bool = True,
+        extra_params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         page = 1
@@ -349,9 +352,10 @@ class TraktClient:
 
         while True:
             logger.info(f"Fetching page {page} from {endpoint}")
-            response = self._request_with_retry(
-                "GET", endpoint, params={"extended": "full", "page": page, "limit": limit}
-            )
+            params: dict[str, Any] = {"extended": "full", "page": page, "limit": limit}
+            if extra_params:
+                params.update(extra_params)
+            response = self._request_with_retry("GET", endpoint, params=params)
 
             if response.status_code != 200:
                 _handle_page_error(response, endpoint, raise_on_error)
@@ -378,9 +382,13 @@ class TraktClient:
         return self._fetch_paginated_list(endpoint, raise_on_error=True)
 
     def get_watched_shows(self) -> list[dict[str, Any]]:
-        """Fetch watched shows for the user with pagination."""
+        """Fetch watched shows (including per-season/episode progress and specials) for the user with pagination."""
         endpoint = self._get_user_endpoint("sync/watched/shows", "watched/shows")
-        return self._fetch_paginated_list(endpoint, raise_on_error=False)
+        return self._fetch_paginated_list(
+            endpoint,
+            raise_on_error=False,
+            extra_params={"extended": "full,progress", "specials": "true"},
+        )
 
     def get_watched_movies(self) -> list[dict[str, Any]]:
         """Fetch watched movies for the user with pagination."""
