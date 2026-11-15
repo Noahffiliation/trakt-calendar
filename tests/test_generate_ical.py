@@ -111,12 +111,16 @@ def test_fetch_show_episodes():
 
 def test_sync_to_google():
     mock_service = MagicMock()
+    mock_gmail = MagicMock()
     mock_movies_cal = MagicMock()
     mock_shows_cal = MagicMock()
     mock_streaming_cal = MagicMock()
 
     with (
+        patch.dict("os.environ", {"GOOGLE_SHARE_EMAIL": "user@example.com"}),
         patch("google_sync.get_google_calendar_service", return_value=mock_service),
+        patch("google_sync.get_gmail_service", return_value=mock_gmail),
+        patch("google_sync.disable_calendar_other_notifications") as mock_disable,
         patch(
             "google_sync.get_or_create_calendar", side_effect=["m_id", "s_id", "st_id"]
         ) as mock_get_cal,
@@ -131,6 +135,7 @@ def test_sync_to_google():
             streaming_cal_id_override="custom_st_id",
         )
         assert mock_sync.call_count == 3
+        mock_disable.assert_called_once_with(["m_id", "s_id", "st_id"])
         mock_get_cal.assert_any_call(mock_service, "Trakt Movies", calendar_id="custom_m_id")
         mock_get_cal.assert_any_call(mock_service, "Trakt TV Shows", calendar_id="custom_s_id")
         mock_get_cal.assert_any_call(mock_service, "Trakt Streaming", calendar_id="custom_st_id")

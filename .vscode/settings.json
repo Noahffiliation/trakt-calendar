@@ -2,5 +2,6 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "noahffiliation",
         "projectKey": "Noahffiliation_trakt-calendar"
-    }
+    },
+    "python.analysis.autoImportCompletions": true
 }

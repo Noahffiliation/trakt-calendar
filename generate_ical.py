@@ -28,6 +28,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+MOVIES_CALENDAR_NAME = "Trakt Movies"
+SHOWS_CALENDAR_NAME = "Trakt TV Shows"
+STREAMING_CALENDAR_NAME = "Trakt Streaming"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -460,28 +464,61 @@ def _sync_to_google(
     logger.info("Initializing Direct Google Calendar API Sync...")
     try:
         from google_sync import (
+            disable_calendar_other_notifications,
+            get_gmail_service,
             get_google_calendar_service,
             get_or_create_calendar,
             sync_ical_to_google_calendar,
         )
 
         service = get_google_calendar_service()
+        share_email = os.getenv("GOOGLE_SHARE_EMAIL") or os.getenv("GOOGLE_CALENDAR_SHARE_EMAIL")
+        gmail_service = get_gmail_service() if share_email else None
 
         movies_cal_id = get_or_create_calendar(
-            service, "Trakt Movies", calendar_id=movies_cal_id_override
+            service, MOVIES_CALENDAR_NAME, calendar_id=movies_cal_id_override
         )
-        sync_ical_to_google_calendar(service, movies_cal_id, movies_cal)
-
         shows_cal_id = get_or_create_calendar(
-            service, "Trakt TV Shows", calendar_id=shows_cal_id_override
+            service, SHOWS_CALENDAR_NAME, calendar_id=shows_cal_id_override
         )
-        sync_ical_to_google_calendar(service, shows_cal_id, shows_cal)
-
-        if streaming_cal is not None:
-            streaming_cal_id = get_or_create_calendar(
-                service, "Trakt Streaming", calendar_id=streaming_cal_id_override
+        streaming_cal_id = (
+            get_or_create_calendar(
+                service, STREAMING_CALENDAR_NAME, calendar_id=streaming_cal_id_override
             )
-            sync_ical_to_google_calendar(service, streaming_cal_id, streaming_cal)
+            if streaming_cal is not None
+            else None
+        )
+
+        disable_calendar_other_notifications(
+            [cid for cid in (movies_cal_id, shows_cal_id, streaming_cal_id) if cid]
+        )
+
+        sync_ical_to_google_calendar(
+            service,
+            movies_cal_id,
+            movies_cal,
+            gmail_service=gmail_service,
+            notify_email=share_email,
+            calendar_name=MOVIES_CALENDAR_NAME,
+        )
+        sync_ical_to_google_calendar(
+            service,
+            shows_cal_id,
+            shows_cal,
+            gmail_service=gmail_service,
+            notify_email=share_email,
+            calendar_name=SHOWS_CALENDAR_NAME,
+        )
+
+        if streaming_cal is not None and streaming_cal_id is not None:
+            sync_ical_to_google_calendar(
+                service,
+                streaming_cal_id,
+                streaming_cal,
+                gmail_service=gmail_service,
+                notify_email=share_email,
+                calendar_name=STREAMING_CALENDAR_NAME,
+            )
 
         logger.info("✅ Direct Google Calendar API sync complete!")
     except Exception:
@@ -524,18 +561,18 @@ def main():
 
     # Build Calendars
     movies_cal = build_movies_calendar(
-        movies=movies, start_cutoff=start_cutoff, calendar_name="Trakt Movies"
+        movies=movies, start_cutoff=start_cutoff, calendar_name=MOVIES_CALENDAR_NAME
     )
     shows_cal = build_shows_calendar(
         episodes=episodes_to_include,
         shows_premieres=standalone_premieres,
         start_cutoff=start_cutoff,
-        calendar_name="Trakt TV Shows",
+        calendar_name=SHOWS_CALENDAR_NAME,
     )
     streaming_cal = build_streaming_calendar(
         streaming_movies=streaming_movies,
         start_cutoff=start_cutoff,
-        calendar_name="Trakt Streaming",
+        calendar_name=STREAMING_CALENDAR_NAME,
     )
     combined_cal = build_calendar(
         movies=movies,
