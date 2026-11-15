@@ -416,9 +416,7 @@ def test_delete_removed_events():
         )
     # Only ev2 should be deleted; ev4 is already cancelled and ignored
     assert deleted == 1
-    mock_service.events().delete.assert_called_once_with(
-        calendarId="cal_id", eventId="ev2", sendUpdates="none"
-    )
+    mock_service.events().delete.assert_called_once_with(calendarId="cal_id", eventId="ev2")
 
 
 def test_get_oauth_credentials_corrupt_user_file():

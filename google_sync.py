@@ -288,9 +288,9 @@ def _delete_removed_events(
             event_id = g_event.get("id")
             summary = g_event.get("summary", "Unknown Event")
             try:
-                service.events().delete(
-                    calendarId=calendar_id, eventId=event_id, sendUpdates="none"
-                ).execute(num_retries=5)
+                service.events().delete(calendarId=calendar_id, eventId=event_id).execute(
+                    num_retries=5
+                )
                 logger.info(f"Deleted removed/dropped event '{summary}' from Google Calendar.")
                 deleted_count += 1
                 time.sleep(0.05)
