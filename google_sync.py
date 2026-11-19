@@ -32,6 +32,14 @@ SERVICE_ACCOUNT_FILE = "service_account.json"
 CREDENTIALS_FILE = "credentials.json"
 TOKEN_FILE = "token.json"
 DEFAULT_CALENDAR_NAME = "Trakt Calendar"
+EVENT_CHANGE_NOTIFICATION_TYPES = frozenset(
+    {
+        "eventCreation",
+        "eventChange",
+        "eventCancellation",
+        "eventResponse",
+    }
+)
 
 
 def _save_token_file(token_path: str, creds: Any) -> None:
@@ -123,8 +131,10 @@ def disable_calendar_other_notifications(
     token_path: str = TOKEN_FILE,
 ) -> None:
     """
-    Clears Google Calendar's built-in 'Other notifications' (calendar-notification@google.com)
-    on the user's CalendarList entries so Google Calendar does not send duplicate RSVP-style emails.
+    Clears Google Calendar's built-in event-change 'Other notifications'
+    (eventCreation, eventChange, eventCancellation, eventResponse) on the user's
+    CalendarList entries so Google Calendar does not send duplicate RSVP-style emails,
+    while preserving non-event notifications such as Daily agenda ('agenda').
     """
     if not calendar_ids or not (os.path.exists(token_path) or os.path.exists(credentials_path)):
         return
@@ -135,10 +145,21 @@ def disable_calendar_other_notifications(
             if not cal_id:
                 continue
             with contextlib.suppress(Exception):
-                user_cal_service.calendarList().patch(
-                    calendarId=cal_id,
-                    body={"notificationSettings": {"notifications": []}},
-                ).execute(num_retries=3)
+                entry = (
+                    user_cal_service.calendarList().get(calendarId=cal_id).execute(num_retries=3)
+                )
+                notification_settings = entry.get("notificationSettings") or {}
+                existing_notifications = notification_settings.get("notifications") or []
+                kept_notifications = [
+                    notif
+                    for notif in existing_notifications
+                    if notif.get("type") not in EVENT_CHANGE_NOTIFICATION_TYPES
+                ]
+                if kept_notifications != existing_notifications:
+                    user_cal_service.calendarList().patch(
+                        calendarId=cal_id,
+                        body={"notificationSettings": {"notifications": kept_notifications}},
+                    ).execute(num_retries=3)
     except Exception as e:
         logger.debug(f"Could not update user calendarList notificationSettings: {e}")
 

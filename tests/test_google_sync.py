@@ -508,15 +508,50 @@ def test_disable_calendar_other_notifications():
 
     mock_creds = MagicMock()
     mock_user_cal = MagicMock()
+    mock_user_cal.calendarList().get().execute.side_effect = [
+        {
+            "notificationSettings": {
+                "notifications": [
+                    {"type": "eventCreation", "method": "email"},
+                    {"type": "eventChange", "method": "email"},
+                    {"type": "eventCancellation", "method": "email"},
+                    {"type": "eventResponse", "method": "email"},
+                    {"type": "agenda", "method": "email"},
+                ]
+            }
+        },
+        {
+            "notificationSettings": {
+                "notifications": [
+                    {"type": "agenda", "method": "email"},
+                ]
+            }
+        },
+        {
+            "notificationSettings": {
+                "notifications": [
+                    {"type": "eventCreation", "method": "email"},
+                ]
+            }
+        },
+        {},
+    ]
     with (
         patch("os.path.exists", return_value=True),
         patch("google_sync._get_oauth_credentials", return_value=mock_creds),
         patch("google_sync.build", return_value=mock_user_cal),
     ):
-        google_sync.disable_calendar_other_notifications(["", "cal1", "cal2"])
+        google_sync.disable_calendar_other_notifications(["", "cal1", "cal2", "cal3", "cal4"])
+        assert mock_user_cal.calendarList().get.call_count == 5  # 1 setup + 4 calendars
         assert mock_user_cal.calendarList().patch.call_count == 2
         mock_user_cal.calendarList().patch.assert_any_call(
             calendarId="cal1",
+            body={
+                "notificationSettings": {"notifications": [{"type": "agenda", "method": "email"}]}
+            },
+        )
+        mock_user_cal.calendarList().patch.assert_any_call(
+            calendarId="cal3",
             body={"notificationSettings": {"notifications": []}},
         )
 
