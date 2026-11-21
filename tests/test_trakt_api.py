@@ -173,6 +173,7 @@ def test_save_refreshed_tokens_to_file(tmp_path):
     client._save_refreshed_tokens()
 
     assert token_file.exists()
+    assert (token_file.stat().st_mode & 0o777) == 0o600
     content = token_file.read_text(encoding="utf-8")
     assert "new_access_123" in content
     assert "new_refresh_456" in content
@@ -311,12 +312,30 @@ def test_try_refresh_token_edge_cases():
     mock_fail_resp = MagicMock(status_code=400, text="Invalid Grant")
     with patch.object(client.session, "post", return_value=mock_fail_resp):
         assert client._try_refresh_token() is False
+        assert client._refresh_failed is True
+
+    # 200 OK with incomplete payload keeps existing credentials
+    client_incomplete = TraktClient(
+        client_id="cid",
+        access_token="orig_acc",
+        client_secret="csec",
+        refresh_token="orig_ref",
+    )
+    mock_incomplete_resp = MagicMock(status_code=200)
+    mock_incomplete_resp.json.return_value = {"access_token": "only_acc"}
+    with patch.object(client_incomplete.session, "post", return_value=mock_incomplete_resp):
+        assert client_incomplete._try_refresh_token() is False
+        assert client_incomplete._refresh_failed is True
+        assert client_incomplete.access_token == "orig_acc"
+        assert client_incomplete.refresh_token == "orig_ref"
 
     # Exception during request
+    client_exc = TraktClient(client_id="cid", client_secret="csec", refresh_token="rtok")
     with patch.object(
-        client.session, "post", side_effect=requests.RequestException("Connection error")
+        client_exc.session, "post", side_effect=requests.RequestException("Connection error")
     ):
-        assert client._try_refresh_token() is False
+        assert client_exc._try_refresh_token() is False
+        assert client_exc._refresh_failed is True
 
 
 def test_save_cache_exception(tmp_path):
@@ -366,6 +385,33 @@ def test_get_hidden_show_ids_edge_cases():
     with patch.object(client_auth.session, "get", side_effect=Exception("Network failure")):
         hidden = client_auth.get_hidden_show_ids()
         assert hidden == set()
+
+    # Non-list JSON payload returns empty set
+    mock_non_list = MagicMock(status_code=200)
+    mock_non_list.json.return_value = {"unexpected": "dict"}
+    with patch.object(client_auth.session, "get", return_value=mock_non_list):
+        assert client_auth.get_hidden_show_ids() == set()
+
+    # Stops iterating hidden sections once 401 refresh has failed
+    client_401 = TraktClient(
+        client_id="test_id",
+        access_token="bad_acc",
+        client_secret="csec",
+        refresh_token="bad_ref",
+    )
+    mock_401 = MagicMock(status_code=401, text="Unauthorized")
+    mock_400 = MagicMock(
+        status_code=400,
+        text='{"error":"invalid_grant","error_description":"invalid refresh token"}',
+    )
+    with (
+        patch.object(client_401.session, "get", return_value=mock_401) as mock_get,
+        patch.object(client_401.session, "post", return_value=mock_400) as mock_post,
+    ):
+        hidden = client_401.get_hidden_show_ids()
+        assert hidden == set()
+        assert mock_get.call_count == 1
+        assert mock_post.call_count == 1
 
 
 def test_get_show_seasons_with_episodes_caching_and_errors(tmp_path):

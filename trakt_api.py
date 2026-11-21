@@ -152,6 +152,17 @@ def _handle_page_error(response, endpoint: str, raise_on_error: bool):
     logger.warning(f"Could not fetch {endpoint} ({response.status_code}): {response.text}")
 
 
+def _extract_hidden_show_ids(items: Any) -> set[int]:
+    if not isinstance(items, list):
+        return set()
+    ids: set[int] = set()
+    for item in items:
+        trakt_id = item.get("show", {}).get("ids", {}).get("trakt")
+        if trakt_id:
+            ids.add(trakt_id)
+    return ids
+
+
 class TraktClient:
     def __init__(
         self,
@@ -213,6 +224,8 @@ class TraktClient:
         try:
             with open(self.refreshed_tokens_file, "w", encoding="utf-8") as f:
                 json.dump(token_data, f)
+            with contextlib.suppress(OSError):
+                os.chmod(self.refreshed_tokens_file, 0o600)
         except Exception as e:
             logger.warning(
                 f"Could not save refreshed tokens to '{self.refreshed_tokens_file}': {e}"
@@ -265,8 +278,16 @@ class TraktClient:
             )
             if response.status_code == 200:
                 data = response.json()
-                self.access_token = data.get("access_token")
-                self.refresh_token = data.get("refresh_token")
+                new_access_token = data.get("access_token")
+                new_refresh_token = data.get("refresh_token")
+                if not new_access_token or not new_refresh_token:
+                    self._refresh_failed = True
+                    logger.warning(
+                        "Automatic token refresh returned an incomplete token response; keeping existing credentials."
+                    )
+                    return False
+                self.access_token = new_access_token
+                self.refresh_token = new_refresh_token
                 self._refresh_failed = False
                 logger.info("✅ Successfully refreshed Trakt OAuth access token!")
                 self._save_refreshed_tokens()
@@ -276,6 +297,11 @@ class TraktClient:
                 logger.warning(
                     f"Automatic token refresh failed ({response.status_code}): {response.text}"
                 )
+                if response.status_code in (400, 401):
+                    logger.warning(
+                        "Trakt OAuth refresh token is invalid or expired. "
+                        "Re-authenticate by running: uv run auth.py"
+                    )
                 return False
         except Exception as e:
             self._refresh_failed = True
@@ -419,12 +445,10 @@ class TraktClient:
             params = {"type": "show", "limit": 100}
             try:
                 response = self._request_with_retry("GET", endpoint, params=params)
-                if response.status_code == 200 and isinstance(response.json(), list):
-                    for item in response.json():
-                        show = item.get("show", {})
-                        trakt_id = show.get("ids", {}).get("trakt")
-                        if trakt_id:
-                            hidden_ids.add(trakt_id)
+                if response.status_code == 401 and self._refresh_failed:
+                    break
+                if response.status_code == 200:
+                    hidden_ids.update(_extract_hidden_show_ids(response.json()))
             except Exception as e:
                 logger.debug(f"Could not fetch hidden section '{section}': {e}")
 

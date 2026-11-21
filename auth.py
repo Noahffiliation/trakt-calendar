@@ -3,13 +3,15 @@ Helper script to authenticate with Trakt via Device Code or PIN flow
 and retrieve an OAuth Access Token for private watchlists.
 """
 
+import contextlib
 import os
 import sys
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 
-from trakt_api import update_env_file
+from trakt_api import REFRESHED_TOKENS_FILE, update_env_file
 
 load_dotenv()
 
@@ -69,6 +71,11 @@ def _save_tokens_to_env(
         print(f"✅ Automatically updated {target_env} with new access and refresh tokens.")
     except Exception as e:
         print(f"⚠️  Could not automatically update {target_env}: {e}")
+        return
+
+    stale_tokens_file = Path(target_env).parent / REFRESHED_TOKENS_FILE
+    with contextlib.suppress(OSError):
+        stale_tokens_file.unlink(missing_ok=True)
 
 
 def _handle_token_refresh(client_id: str, client_secret: str) -> None:

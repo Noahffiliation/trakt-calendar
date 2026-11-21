@@ -228,3 +228,35 @@ def test_auth_main_refresh_updates_env_file(tmp_path, capsys):
     env_content = env_file.read_text(encoding="utf-8")
     assert "TRAKT_ACCESS_TOKEN=new_ref_acc\n" in env_content
     assert "TRAKT_REFRESH_TOKEN=new_ref_tok\n" in env_content
+
+
+def test_save_tokens_to_env_removes_stale_refreshed_tokens_file(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TRAKT_ACCESS_TOKEN=old\nTRAKT_REFRESH_TOKEN=old\n", encoding="utf-8")
+    stale_tokens = tmp_path / ".trakt_refreshed_tokens.json"
+    stale_tokens.write_text(
+        '{"access_token": "stale_acc", "refresh_token": "stale_ref"}', encoding="utf-8"
+    )
+
+    with patch.dict("os.environ", {"ENV_FILE": str(env_file)}):
+        auth._save_tokens_to_env("fresh_acc", "fresh_ref")
+
+    assert not stale_tokens.exists()
+    env_content = env_file.read_text(encoding="utf-8")
+    assert "TRAKT_ACCESS_TOKEN=fresh_acc\n" in env_content
+    assert "TRAKT_REFRESH_TOKEN=fresh_ref\n" in env_content
+
+
+def test_save_tokens_to_env_keeps_refreshed_file_on_write_error(tmp_path, capsys):
+    env_file = tmp_path / ".env"
+    stale_tokens = tmp_path / ".trakt_refreshed_tokens.json"
+    stale_tokens.write_text('{"access_token": "a", "refresh_token": "r"}', encoding="utf-8")
+
+    with (
+        patch.dict("os.environ", {"ENV_FILE": str(env_file)}),
+        patch("auth.update_env_file", side_effect=OSError("disk full")),
+    ):
+        auth._save_tokens_to_env("fresh_acc", "fresh_ref")
+
+    assert stale_tokens.exists()
+    assert "Could not automatically update" in capsys.readouterr().out
